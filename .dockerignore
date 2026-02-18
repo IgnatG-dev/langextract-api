@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Testing / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+env/
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment (secrets)
+.env
+.env.*
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Docker (avoid recursion)
+docker-compose*.yml
+docker-compose*.yaml
+
+# Build artefacts
+dist/
+build/
+
+# Tests
+tests/

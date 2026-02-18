@@ -1,0 +1,37 @@
+# Target Python version
+target-version = "py312"
+
+# Directories to lint
+src = ["app", "tests"]
+
+# Enable/disable specific rules
+lint.select = [
+    "E",   # pycodestyle (errors)
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+lint.ignore = [
+    "E501",  # line length (let formatter handle wrapping if added later)
+]
+
+# Line length for linting/formatting
+line-length = 88
+
+# Exclude common non-source dirs
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+# Import sorting options
+[lint.isort]
+combine-as-imports = true
+force-single-line = false

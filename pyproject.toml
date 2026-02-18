@@ -1,0 +1,45 @@
+[project]
+name = "langextract-api"
+version = "0.1.0"
+description = "Queue-based document extraction API powered by FastAPI, Celery, and LangExtract"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.129.0",
+    "uvicorn[standard]>=0.35.0",
+    "pydantic-settings>=2.13.0",
+    "celery[redis]>=5.6.2",
+    "redis>=5.0.3,<6.5",
+    "httpx>=0.28.1",
+    "flower>=2.0.1",
+    # LangExtract — uncomment or replace with your fork
+    # "langextract @ git+https://github.com/your-org/langextract.git@main",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.13.0",
+]
+
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
