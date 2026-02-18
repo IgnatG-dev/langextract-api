@@ -28,12 +28,18 @@ Queue-based document extraction API powered by **FastAPI**, **Celery**, and [**L
 langextract-api/
 ├── app/
 │   ├── __init__.py            # Package marker
-│   ├── main.py                # FastAPI entry point & all routes
+│   ├── main.py                # App factory, middleware, lifespan
 │   ├── worker.py              # Celery app configuration
 │   ├── tasks.py               # Long-running extraction tasks (langextract)
 │   ├── schemas.py             # Pydantic request/response models
 │   ├── dependencies.py        # Settings, Redis client, singletons
-│   └── extraction_defaults.py # Default prompt & few-shot examples
+│   ├── extraction_defaults.py # Default prompt & few-shot examples
+│   ├── logging_config.py      # Structured logging setup
+│   └── routers/
+│       ├── __init__.py
+│       ├── health.py          # GET /health, GET /health/celery
+│       ├── extraction.py      # POST /extract, POST /extract/batch
+│       └── tasks.py           # GET/DELETE /tasks/{task_id}
 ├── tests/
 │   ├── conftest.py            # Shared pytest fixtures
 │   ├── test_api.py            # API endpoint tests

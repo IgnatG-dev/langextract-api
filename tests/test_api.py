@@ -24,7 +24,7 @@ async def test_health_check():
 @pytest.mark.asyncio
 async def test_submit_extraction_with_url():
     """Test submitting an extraction task with a document URL."""
-    with patch("app.main.extract_document") as mock_task:
+    with patch("app.routers.extraction.extract_document") as mock_task:
         mock_result = MagicMock()
         mock_result.id = "task-id-abc-123"
         mock_task.delay.return_value = mock_result
@@ -59,7 +59,7 @@ async def test_submit_extraction_with_url():
 @pytest.mark.asyncio
 async def test_submit_extraction_with_raw_text():
     """Test submitting an extraction task with raw text."""
-    with patch("app.main.extract_document") as mock_task:
+    with patch("app.routers.extraction.extract_document") as mock_task:
         mock_result = MagicMock()
         mock_result.id = "task-id-text-456"
         mock_task.delay.return_value = mock_result
@@ -98,7 +98,7 @@ async def test_submit_extraction_requires_input():
 @pytest.mark.asyncio
 async def test_submit_batch_extraction():
     """Test submitting a batch extraction task with callback_url."""
-    with patch("app.main.extract_batch") as mock_task:
+    with patch("app.routers.extraction.extract_batch") as mock_task:
         mock_result = MagicMock()
         mock_result.id = "batch-task-id-789"
         mock_task.delay.return_value = mock_result
@@ -138,7 +138,7 @@ async def test_submit_batch_extraction():
 @pytest.mark.asyncio
 async def test_get_task_status_pending():
     """Test polling a pending task."""
-    with patch("app.main.AsyncResult") as mock_ar:
+    with patch("app.routers.tasks.AsyncResult") as mock_ar:
         mock_instance = MagicMock()
         mock_instance.state = "PENDING"
         mock_instance.info = None
@@ -159,7 +159,7 @@ async def test_get_task_status_pending():
 @pytest.mark.asyncio
 async def test_revoke_task():
     """Test revoking a task."""
-    with patch("app.main.celery_app") as mock_celery:
+    with patch("app.routers.tasks.celery_app") as mock_celery:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.delete(
