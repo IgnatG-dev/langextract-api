@@ -1,5 +1,7 @@
 """Task management routes (status polling & revocation)."""
 
+from __future__ import annotations
+
 from celery.result import AsyncResult
 from fastapi import APIRouter
 
@@ -8,14 +10,17 @@ from app.schemas import (
     TaskState,
     TaskStatusResponse,
 )
-from app.worker import celery_app
+from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["tasks"])
 
 
-@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+@router.get(
+    "/tasks/{task_id}",
+    response_model=TaskStatusResponse,
+)
 def get_task_status(task_id: str) -> TaskStatusResponse:
-    """Poll the current status and result of a previously submitted task."""
+    """Poll the current status and result of a task."""
     result = AsyncResult(task_id, app=celery_app)
 
     response = TaskStatusResponse(
@@ -37,18 +42,22 @@ def get_task_status(task_id: str) -> TaskStatusResponse:
     return response
 
 
-@router.delete("/tasks/{task_id}", response_model=TaskRevokeResponse)
+@router.delete(
+    "/tasks/{task_id}",
+    response_model=TaskRevokeResponse,
+)
 def revoke_task(
     task_id: str,
     terminate: bool = False,
 ) -> TaskRevokeResponse:
     """Revoke a pending or running task.
 
-    Set ``terminate=true`` to send SIGTERM to a running worker process.
+    Set ``terminate=true`` to send SIGTERM to a running worker
+    process.
     """
     celery_app.control.revoke(task_id, terminate=terminate)
     return TaskRevokeResponse(
         task_id=task_id,
         status="revoked",
-        message=f"Task revocation signal sent (terminate={terminate})",
+        message=(f"Task revocation signal sent (terminate={terminate})"),
     )

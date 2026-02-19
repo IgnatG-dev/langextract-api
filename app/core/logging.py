@@ -2,8 +2,8 @@
 Centralized logging configuration.
 
 Provides structured JSON logging for production and human-readable
-output for local development. Import ``setup_logging`` early in the
-application lifecycle (e.g. in ``main.py`` or ``worker.py``).
+output for local development.  Import ``setup_logging`` early in
+the application lifecycle (e.g. in ``main.py`` or ``celery_app.py``).
 """
 
 from __future__ import annotations
@@ -17,8 +17,7 @@ def setup_logging(
     *,
     json_format: bool = False,
 ) -> None:
-    """
-    Configure the root logger for the application.
+    """Configure the root logger for the application.
 
     The JSON format includes a ``request_id`` placeholder that is
     populated by the ``RequestIDMiddleware`` when running inside
@@ -27,7 +26,8 @@ def setup_logging(
     Args:
         level: Logging level name (e.g. ``"INFO"``, ``"DEBUG"``).
         json_format: If ``True``, emit structured JSON lines.
-            Recommended for containerised / production environments.
+            Recommended for containerised / production
+            environments.
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -40,7 +40,7 @@ def setup_logging(
             '"message":"%(message)s"}'
         )
     else:
-        fmt = "%(asctime)s | %(levelname)-8s | %(name)s | " "%(message)s"
+        fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter(fmt))
@@ -82,8 +82,7 @@ class _RequestIDFilter(logging.Filter):
 
 
 def _silence_noisy_loggers(app_level: int) -> None:
-    """
-    Reduce verbosity of third-party libraries.
+    """Reduce verbosity of third-party libraries.
 
     Args:
         app_level: The application's configured log level.

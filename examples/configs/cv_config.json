@@ -1,0 +1,33 @@
+{
+  "raw_text": "John Doe — Software Engineer at Acme Inc (2020-present). BSc Computer Science, MIT (2016-2020). Skills: Python, TypeScript, AWS.",
+  "provider": "gpt-4o",
+  "extraction_config": {
+    "prompt_description": "Extract CV/resume fields: candidate name, current role, employer, education, and skills.",
+    "examples": [
+      {
+        "text": "Jane Smith — Product Manager at BigCo (2019-2023). MBA, Stanford (2017-2019).",
+        "extractions": [
+          {
+            "extraction_class": "candidate",
+            "extraction_text": "Jane Smith"
+          },
+          {
+            "extraction_class": "role",
+            "extraction_text": "Product Manager"
+          },
+          {
+            "extraction_class": "employer",
+            "extraction_text": "BigCo",
+            "attributes": { "period": "2019-2023" }
+          },
+          {
+            "extraction_class": "education",
+            "extraction_text": "MBA, Stanford",
+            "attributes": { "period": "2017-2019" }
+          }
+        ]
+      }
+    ],
+    "temperature": 0.1
+  }
+}

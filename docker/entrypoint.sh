@@ -31,7 +31,7 @@ case "${APP_ROLE}" in
     ;;
 
   worker)
-    exec celery -A app.worker.celery_app worker \
+    exec celery -A app.workers.celery_app worker \
       --loglevel="${LOG_LEVEL}" \
       --concurrency="${WORKER_CONCURRENCY:-2}" \
       --max-tasks-per-child="${MAX_TASKS_PER_CHILD:-100}"
@@ -41,7 +41,7 @@ case "${APP_ROLE}" in
     # Brief pause lets the worker finish its mingle phase so
     # flower's first inspect round succeeds cleanly.
     sleep 5
-    exec celery -A app.worker.celery_app \
+    exec celery -A app.workers.celery_app \
       --broker="${CELERY_BROKER_URL:-redis://redis:6379/0}" \
       flower \
       --port=5555 \
@@ -49,7 +49,7 @@ case "${APP_ROLE}" in
     ;;
 
   beat)
-    exec celery -A app.worker.celery_app beat \
+    exec celery -A app.workers.celery_app beat \
       --loglevel="${LOG_LEVEL}"
     ;;
 

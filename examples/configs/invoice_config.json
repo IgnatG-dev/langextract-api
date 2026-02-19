@@ -1,0 +1,33 @@
+{
+  "document_url": "https://example.com/invoice-001.pdf",
+  "provider": "gpt-4o",
+  "passes": 1,
+  "extraction_config": {
+    "prompt_description": "Extract invoice fields: vendor, invoice number, date, line items, and total amount.",
+    "examples": [
+      {
+        "text": "Invoice #1234 from Acme Corp dated 2025-01-15. Total: $1,500.00",
+        "extractions": [
+          {
+            "extraction_class": "vendor",
+            "extraction_text": "Acme Corp"
+          },
+          {
+            "extraction_class": "invoice_number",
+            "extraction_text": "#1234"
+          },
+          {
+            "extraction_class": "date",
+            "extraction_text": "2025-01-15"
+          },
+          {
+            "extraction_class": "monetary_amount",
+            "extraction_text": "$1,500.00",
+            "attributes": { "type": "total" }
+          }
+        ]
+      }
+    ],
+    "temperature": 0.2
+  }
+}

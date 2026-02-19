@@ -2,8 +2,11 @@
 FastAPI application factory.
 
 Creates the ``app`` instance with middleware, lifespan hooks,
-and versioned API routers.  Route handlers live in ``app.routers.*``.
+and versioned API routers.  Route handlers live in
+``app.api.routes.*``.
 """
+
+from __future__ import annotations
 
 import logging
 import time
@@ -17,9 +20,9 @@ from starlette.middleware.base import (
     RequestResponseEndpoint,
 )
 
-from app.dependencies import get_settings, get_version
-from app.logging_config import setup_logging
-from app.routers import extraction, health, tasks
+from app.api.routes import extraction, health, tasks
+from app.core.config import get_settings, get_version
+from app.core.logging import setup_logging
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 

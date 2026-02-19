@@ -2,15 +2,15 @@
 Provider singletons, configuration, and session management.
 
 Centralises all external configuration (env-vars / .env) and
-provides FastAPI dependency-injection helpers for Redis and
-Celery connectivity.
+provides helpers for Redis connectivity and version discovery.
+FastAPI-specific dependency injection (``Depends(get_redis)``) lives
+in ``app.api.deps`` to keep this module framework-agnostic.
 """
 
 from __future__ import annotations
 
 import importlib.metadata
 import logging
-from collections.abc import Generator
 from functools import lru_cache
 
 import redis
@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     @property
     def REDIS_URL(self) -> str:  # noqa: N802
         """Full Redis connection URL."""
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}" f"/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     @property
     def CELERY_BROKER_URL(self) -> str:  # noqa: N802
@@ -133,11 +133,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """
-    Return a cached Settings singleton.
+    """Return a cached Settings singleton.
 
-    Using ``lru_cache`` ensures the .env file is read exactly once.
-    Override in tests via ``app.dependency_overrides``.
+    Using ``lru_cache`` ensures the .env file is read exactly
+    once.  Override in tests via ``app.dependency_overrides``.
     """
     return Settings()
 
@@ -147,7 +146,7 @@ def get_settings() -> Settings:
 _redis_pool: redis.ConnectionPool | None = None
 
 
-def _get_redis_pool() -> redis.ConnectionPool:
+def get_redis_pool() -> redis.ConnectionPool:
     """Return a module-level Redis ``ConnectionPool`` (created once).
 
     Reusing a single pool avoids the overhead of creating and
@@ -156,7 +155,7 @@ def _get_redis_pool() -> redis.ConnectionPool:
     Returns:
         A shared ``ConnectionPool`` instance.
     """
-    global _redis_pool  # noqa: PLW0603
+    global _redis_pool
     if _redis_pool is None:
         settings = get_settings()
         _redis_pool = redis.ConnectionPool.from_url(
@@ -166,30 +165,14 @@ def _get_redis_pool() -> redis.ConnectionPool:
     return _redis_pool
 
 
-def get_redis() -> Generator[redis.Redis, None, None]:
-    """
-    Yield a Redis client backed by the shared connection pool.
-
-    Usage as a FastAPI dependency::
-
-        @router.get("/ping")
-        def ping(r: redis.Redis = Depends(get_redis)):
-            return r.ping()
-    """
-    client = redis.Redis(connection_pool=_get_redis_pool())
-    try:
-        yield client
-    finally:
-        client.close()
-
-
 def get_redis_client() -> redis.Redis:
-    """Return a Redis client for non-dependency use (e.g. tasks).
+    """Return a Redis client for non-dependency use.
 
-    The caller is responsible for calling ``client.close()``
-    when finished.
+    Used by Celery tasks and router helpers that cannot rely on
+    FastAPI ``Depends()``.  The caller is responsible for calling
+    ``client.close()`` when finished.
 
     Returns:
         A ``redis.Redis`` instance on the shared pool.
     """
-    return redis.Redis(connection_pool=_get_redis_pool())
+    return redis.Redis(connection_pool=get_redis_pool())

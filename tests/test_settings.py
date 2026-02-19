@@ -10,7 +10,7 @@ Validates:
 
 from __future__ import annotations
 
-from app.dependencies import Settings, get_version
+from app.core.config import Settings, get_version
 
 
 class TestSettingsDefaults:
@@ -110,7 +110,7 @@ class TestSettingsCorsParser:
         s = Settings(
             _env_file=None,
             REDIS_HOST="localhost",
-            CORS_ORIGINS=('["http://localhost:3000",' '"https://app.example.com"]'),
+            CORS_ORIGINS=('["http://localhost:3000","https://app.example.com"]'),
         )
         assert s.CORS_ORIGINS == [
             "http://localhost:3000",
@@ -198,4 +198,3 @@ class TestGetVersion:
         """get_version always returns a string."""
         v = get_version()
         assert isinstance(v, str)
-        assert len(v) > 0

@@ -28,7 +28,7 @@ from app.schemas import (
     TaskSubmitResponse,
 )
 
-# ── ExtractionConfig ───────────────────────────────────────────────────────
+# ── ExtractionConfig ───────────────────────────────────────
 
 
 class TestExtractionConfig:
@@ -57,7 +57,7 @@ class TestExtractionConfig:
             ExtractionConfig(max_workers=200)
 
 
-# ── ExtractionRequest ──────────────────────────────────────────────────────
+# ── ExtractionRequest ──────────────────────────────────────
 
 
 class TestExtractionRequest:
@@ -130,12 +130,18 @@ class TestExtractionRequest:
     def test_extraction_config_default(self):
         """Default extraction_config is an empty ExtractionConfig."""
         req = ExtractionRequest(raw_text="test")
-        assert isinstance(req.extraction_config, ExtractionConfig)
+        assert isinstance(
+            req.extraction_config,
+            ExtractionConfig,
+        )
         assert req.extraction_config.to_flat_dict() == {}
 
     def test_extraction_config_accepts_custom(self):
         """Custom extraction_config is preserved."""
-        cfg = {"prompt_description": "Custom", "temperature": 0.5}
+        cfg = {
+            "prompt_description": "Custom",
+            "temperature": 0.5,
+        }
         req = ExtractionRequest(
             raw_text="test",
             extraction_config=cfg,
@@ -182,7 +188,7 @@ class TestExtractionRequest:
             assert req.provider == model_id
 
 
-# ── BatchExtractionRequest ─────────────────────────────────────────────────
+# ── BatchExtractionRequest ─────────────────────────────────
 
 
 class TestBatchExtractionRequest:
@@ -211,13 +217,15 @@ class TestBatchExtractionRequest:
         """Batch-level callback_url is accepted."""
         req = BatchExtractionRequest(
             batch_id="batch-003",
-            documents=[ExtractionRequest(raw_text="A")],
+            documents=[
+                ExtractionRequest(raw_text="A"),
+            ],
             callback_url="https://hook.example.com",
         )
         assert req.callback_url is not None
 
 
-# ── ExtractedEntity ────────────────────────────────────────────────────────
+# ── ExtractedEntity ────────────────────────────────────────
 
 
 class TestExtractedEntity:
@@ -250,7 +258,7 @@ class TestExtractedEntity:
         assert entity.char_end is None
 
 
-# ── ExtractionResult ───────────────────────────────────────────────────────
+# ── ExtractionResult ───────────────────────────────────────
 
 
 class TestExtractionResult:
@@ -289,7 +297,7 @@ class TestExtractionResult:
         assert meta.tokens_used is None
 
 
-# ── TaskState ──────────────────────────────────────────────────────────────
+# ── TaskState ──────────────────────────────────────────────
 
 
 class TestTaskState:
@@ -314,7 +322,7 @@ class TestTaskState:
             assert state.value == state.name
 
 
-# ── Response models ────────────────────────────────────────────────────────
+# ── Response models ────────────────────────────────────────
 
 
 class TestResponseModels:
@@ -347,5 +355,8 @@ class TestResponseModels:
 
     def test_health_response(self):
         """HealthResponse requires status and version."""
-        resp = HealthResponse(status="ok", version="0.1.0")
+        resp = HealthResponse(
+            status="ok",
+            version="0.1.0",
+        )
         assert resp.status == "ok"

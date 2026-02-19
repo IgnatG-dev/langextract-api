@@ -1,8 +1,9 @@
 """
-Pydantic models for API requests and responses.
+Pydantic models for extraction requests and responses.
 
-All data contracts live here so that ``main.py`` and ``tasks.py``
-can import lightweight schema objects without circular dependencies.
+All data contracts live here so that route handlers, workers,
+and services can import lightweight schema objects without
+circular dependencies.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
-# ── Task state enum ─────────────────────────────────────────────────────────
+# ── Task state enum ─────────────────────────────────────────
 
 
 class TaskState(StrEnum):
@@ -27,7 +28,7 @@ class TaskState(StrEnum):
     RETRY = "RETRY"
 
 
-# ── Provider validation ─────────────────────────────────────────────────────
+# ── Provider validation ─────────────────────────────────────
 
 Provider = Annotated[
     str,
@@ -37,33 +38,33 @@ Provider = Annotated[
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_./-]*$",
         description=(
             "LLM model ID (e.g. 'gpt-4o', 'gemini-2.5-flash'). "
-            "Must start with an alphanumeric character and contain "
-            "only letters, digits, dots, underscores, slashes, "
-            "and hyphens."
+            "Must start with an alphanumeric character and "
+            "contain only letters, digits, dots, underscores, "
+            "slashes, and hyphens."
         ),
     ),
 ]
 
 
-# ── Extraction configuration model ─────────────────────────────────────────
+# ── Extraction configuration model ─────────────────────────
 
 
 class ExtractionConfig(BaseModel):
     """Typed extraction configuration overrides.
 
-    Replaces the previous ``dict[str, Any]`` so that OpenAPI docs
-    are explicit and users receive proper validation errors.
+    Replaces the previous ``dict[str, Any]`` so that OpenAPI
+    docs are explicit and users receive proper validation errors.
     """
 
     prompt_description: str | None = Field(
         default=None,
-        description="Custom prompt for the extraction pipeline.",
+        description=("Custom prompt for the extraction pipeline."),
     )
     examples: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
-            "Few-shot examples. Each dict should have ``text`` "
-            "and ``extractions`` keys."
+            "Few-shot examples. Each dict should have "
+            "``text`` and ``extractions`` keys."
         ),
     )
     max_workers: int | None = Field(
@@ -79,7 +80,7 @@ class ExtractionConfig(BaseModel):
     )
     additional_context: str | None = Field(
         default=None,
-        description="Extra context string appended to the prompt.",
+        description=("Extra context string appended to the prompt."),
     )
     temperature: float | None = Field(
         default=None,
@@ -97,20 +98,21 @@ class ExtractionConfig(BaseModel):
         """Return a dict with only non-None values.
 
         Returns:
-            Flat dict suitable for ``_run_extraction``.
+            Flat dict suitable for ``run_extraction``.
         """
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
-# ── Request models ──────────────────────────────────────────────────────────
+# ── Request models ──────────────────────────────────────────
 
 
 class ExtractionRequest(BaseModel):
     """Request body for submitting an extraction task.
 
-    At least one of ``document_url`` or ``raw_text`` must be provided.
-    A ``callback_url`` can be supplied so the worker POSTs the result
-    back (webhook) instead of requiring the caller to poll.
+    At least one of ``document_url`` or ``raw_text`` must be
+    provided.  A ``callback_url`` can be supplied so the worker
+    POSTs the result back (webhook) instead of requiring the
+    caller to poll.
     """
 
     document_url: HttpUrl | None = Field(
@@ -126,21 +128,22 @@ class ExtractionRequest(BaseModel):
         description=(
             "LLM model ID to use for extraction "
             "(e.g. 'gpt-4o', 'gemini-2.5-flash'). "
-            "Can override the DEFAULT_PROVIDER env var per-request."
+            "Can override the DEFAULT_PROVIDER env var "
+            "per-request."
         ),
     )
     passes: int = Field(
         default=1,
         ge=1,
         le=5,
-        description="Number of extraction passes for higher accuracy",
+        description=("Number of extraction passes for higher accuracy"),
     )
     callback_url: HttpUrl | None = Field(
         default=None,
         description=(
-            "Webhook URL — if provided, the worker will POST the "
-            "completed result to this URL instead of only storing "
-            "it in Redis."
+            "Webhook URL — if provided, the worker will POST "
+            "the completed result to this URL instead of only "
+            "storing it in Redis."
         ),
     )
     extraction_config: ExtractionConfig = Field(
@@ -154,24 +157,27 @@ class ExtractionRequest(BaseModel):
         default=None,
         max_length=256,
         description=(
-            "Optional client-supplied idempotency key. When provided, "
-            "repeat submissions with the same key return the original "
-            "task ID instead of creating a new task."
+            "Optional client-supplied idempotency key. When "
+            "provided, repeat submissions with the same key "
+            "return the original task ID instead of creating "
+            "a new task."
         ),
     )
 
     @model_validator(mode="after")
-    def _require_at_least_one_input(self) -> "ExtractionRequest":
+    def _require_at_least_one_input(
+        self,
+    ) -> ExtractionRequest:
         """Ensure the caller provides a document URL or raw text."""
         if not self.document_url and not self.raw_text:
             raise ValueError(
-                "At least one of 'document_url' or 'raw_text' " "must be provided."
+                "At least one of 'document_url' or 'raw_text' must be provided."
             )
         return self
 
 
 class BatchExtractionRequest(BaseModel):
-    """Request body for submitting a batch of extraction tasks."""
+    """Request body for submitting a batch of extractions."""
 
     batch_id: str = Field(
         ...,
@@ -191,7 +197,7 @@ class BatchExtractionRequest(BaseModel):
     )
 
 
-# ── Response models ─────────────────────────────────────────────────────────
+# ── Response models ─────────────────────────────────────────
 
 
 class TaskSubmitResponse(BaseModel):
@@ -212,15 +218,15 @@ class TaskSubmitResponse(BaseModel):
 
 
 class BatchTaskSubmitResponse(BaseModel):
-    """Returned when a batch is submitted with per-doc task IDs."""
+    """Returned when a batch is submitted."""
 
     batch_task_id: str = Field(
         ...,
-        description="Celery task ID for the batch orchestrator",
+        description=("Celery task ID for the batch orchestrator"),
     )
     document_task_ids: list[str] = Field(
         default_factory=list,
-        description="Per-document Celery task IDs (parallel mode)",
+        description=("Per-document Celery task IDs (parallel mode)"),
     )
     status: str = Field(
         default="submitted",
@@ -249,11 +255,11 @@ class TaskStatusResponse(BaseModel):
     )
     result: Any | None = Field(
         default=None,
-        description="Task result (available in SUCCESS state)",
+        description=("Task result (available in SUCCESS state)"),
     )
     error: str | None = Field(
         default=None,
-        description="Error message (available in FAILURE state)",
+        description=("Error message (available in FAILURE state)"),
     )
 
 
@@ -274,7 +280,7 @@ class TaskRevokeResponse(BaseModel):
     )
 
 
-# ── Extraction result models (returned by workers) ─────────────────────────
+# ── Extraction result models (returned by workers) ─────────
 
 
 class ExtractedEntity(BaseModel):
@@ -290,15 +296,15 @@ class ExtractedEntity(BaseModel):
     )
     attributes: dict[str, Any] = Field(
         default_factory=dict,
-        description="Key-value attributes providing context",
+        description=("Key-value attributes providing context"),
     )
     char_start: int | None = Field(
         default=None,
-        description="Start character offset in the source text",
+        description=("Start character offset in the source text"),
     )
     char_end: int | None = Field(
         default=None,
-        description="End character offset in the source text",
+        description=("End character offset in the source text"),
     )
 
 
@@ -307,7 +313,7 @@ class ExtractionMetadata(BaseModel):
 
     provider: str = Field(
         ...,
-        description="AI provider / model that ran the extraction",
+        description=("AI provider / model that ran the extraction"),
     )
     tokens_used: int | None = Field(
         default=None,
@@ -318,7 +324,7 @@ class ExtractionMetadata(BaseModel):
     )
     processing_time_ms: int = Field(
         default=0,
-        description="Wall-clock processing time in milliseconds",
+        description=("Wall-clock processing time in milliseconds"),
     )
 
 
@@ -335,7 +341,7 @@ class ExtractionResult(BaseModel):
     )
 
 
-# ── Health models ───────────────────────────────────────────────────────────
+# ── Health models ───────────────────────────────────────────
 
 
 class HealthResponse(BaseModel):

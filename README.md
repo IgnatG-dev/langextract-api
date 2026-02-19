@@ -2,109 +2,53 @@
 
 Queue-based document extraction API powered by **FastAPI**, **Celery**, and [**LangExtract**](https://github.com/google/langextract).
 
+Submit a document URL or raw text, get back structured entities — asynchronously.
+
+---
+
 ## Architecture
 
 ```
 ┌──────────┐      ┌──────────┐      ┌──────────┐
-│   API    │────▶ │  FastAPI │────▶│  Redis   │
-│  Client  │◀──── │   (API)  │      │ (Broker) │
+│   API    │─────▶│ FastAPI  │─────▶│  Redis   │
+│  Client  │◀──── │  (web)   │      │ (broker) │
 └────▲─────┘      └──────────┘      └────┬─────┘
      │                                   │
      │                              ┌────▼─────┐
-     │                              │  Celery  │
+     │          Webhook / Poll      │  Celery  │
      └──────────────────────────────┤  Worker  │
-                 Webhook            └──────────┘
+                                    └──────────┘
 ```
 
-1. **API client** submits a document URL (or raw text) via `POST /api/v1/extract`
-2. FastAPI validates the request, enqueues a Celery task in **Redis**, and returns a **task ID**
-3. A **Celery worker** picks up the task and runs the LangExtract pipeline
-4. Results are stored in **Redis** (configurable TTL via `RESULT_EXPIRES`)
-5. The client either **polls** `GET /api/v1/tasks/{task_id}` or receives a **webhook** callback
+1. Client submits via `POST /api/v1/extract` (or `/extract/batch`)
+2. FastAPI validates, enqueues a Celery task in Redis, returns a **task ID**
+3. A Celery worker runs the LangExtract pipeline
+4. Results are stored in Redis (TTL via `RESULT_EXPIRES`)
+5. Client **polls** `GET /api/v1/tasks/{task_id}` or receives a **webhook** callback
 
-## Project Structure
+---
 
-```
-langextract-api/
-├── app/
-│   ├── __init__.py            # Package marker
-│   ├── main.py                # App factory, middleware, lifespan
-│   ├── worker.py              # Celery app configuration
-│   ├── tasks.py               # Long-running extraction tasks (langextract)
-│   ├── schemas.py             # Pydantic request/response models
-│   ├── dependencies.py        # Settings, Redis client, singletons
-│   ├── extraction_defaults.py # Default prompt & few-shot examples
-│   ├── logging_config.py      # Structured logging setup
-│   └── routers/
-│       ├── __init__.py
-│       ├── health.py          # GET /health, GET /health/celery
-│       ├── extraction.py      # POST /extract, POST /extract/batch
-│       └── tasks.py           # GET/DELETE /tasks/{task_id}
-├── tests/
-│   ├── conftest.py            # Shared pytest fixtures
-│   ├── test_api.py            # API endpoint tests
-│   ├── test_tasks.py          # Task & helper unit tests
-│   ├── test_schemas.py        # Schema validation tests
-│   └── test_settings.py       # Configuration tests
-├── docker/
-│   ├── Dockerfile             # Multi-stage build (dev + production)
-│   └── entrypoint.sh          # Switches between web / worker / flower / beat
-├── .github/
-│   ├── workflows/ci.yml       # Lint, test, Docker build CI pipeline
-│   ├── CODEOWNERS
-│   └── pull_request_template.md
-├── docker-compose.yml         # API + Worker + Redis + Flower
-├── pyproject.toml             # Project metadata & dependencies (uv)
-├── uv.lock                    # Lock file for reproducible installs
-├── Makefile                   # Common development commands
-├── .ruff.toml                 # Ruff linter/formatter configuration
-├── .env.example               # Template for environment variables
-├── .dockerignore              # Docker build context exclusions
-├── .gitignore
-└── README.md
-```
+## Quick Start
 
-## Getting Started
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Python 3.12+ (for local development)
-- [uv](https://github.com/astral-sh/uv) package manager (recommended)
-- A **Gemini** or **OpenAI** API key (for running extractions)
-
-### Quick Start (Docker)
+### Docker (recommended)
 
 ```bash
-# 1. Create .env from template
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY or OPENAI_API_KEY
-
-# 2. Start all services
-docker compose up --build
-
-# 3. Access
-#    API Docs  → http://localhost:8000/api/v1/docs
-#    Flower    → http://localhost:5555
+cp .env.example .env          # add your GEMINI_API_KEY or OPENAI_API_KEY
+docker compose up --build      # API on :8000, Flower on :5555
 ```
 
-### Local Development (without Docker)
+### Local Development
 
 ```bash
-# Install dependencies
-uv sync
-
-# Start Redis
-docker run -d -p 6379:6379 redis:8-alpine
-
-# Set Redis host to localhost
+uv sync                                        # install deps
+docker run -d -p 6379:6379 redis:8-alpine      # start Redis
 export REDIS_HOST=localhost
 
-# Start API (with hot-reload)
+# Terminal 1 — API
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Start worker (separate terminal)
-uv run celery -A app.worker.celery_app worker --loglevel=info
+# Terminal 2 — Worker
+uv run celery -A app.workers.celery_app worker --loglevel=info
 ```
 
 ### Production
@@ -113,38 +57,36 @@ uv run celery -A app.worker.celery_app worker --loglevel=info
 docker compose --profile production up --build -d
 ```
 
-This starts production-optimised API and worker containers with:
+Multi-worker Uvicorn (4 procs), multiple Celery replicas, resource limits, health checks.
 
-- Multi-worker Uvicorn (4 processes)
-- Multiple Celery worker replicas
-- CPU / memory resource limits
-- Health checks and automatic restart
+---
 
-## API Endpoints
+## API Reference
 
-| Method   | Path                       | Description                     |
-|----------|----------------------------|---------------------------------|
-| `POST`   | `/api/v1/extract`          | Submit a single extraction task |
-| `POST`   | `/api/v1/extract/batch`    | Submit a batch of extractions   |
-| `GET`    | `/api/v1/tasks/{task_id}`  | Poll task status & result       |
-| `DELETE` | `/api/v1/tasks/{task_id}`  | Revoke a running task           |
-| `GET`    | `/api/v1/health`           | Liveness probe                  |
-| `GET`    | `/api/v1/health/celery`    | Worker readiness probe          |
+| Method   | Path                      | Description                                    |
+|----------|---------------------------|------------------------------------------------|
+| `POST`   | `/api/v1/extract`         | Submit single extraction                       |
+| `POST`   | `/api/v1/extract/batch`   | Submit batch of extractions                    |
+| `GET`    | `/api/v1/tasks/{task_id}` | Poll task status / result                      |
+| `DELETE` | `/api/v1/tasks/{task_id}` | Revoke a running task                          |
+| `GET`    | `/api/v1/health`          | Liveness probe                                 |
+| `GET`    | `/api/v1/health/celery`   | Worker readiness probe                         |
+| `GET`    | `/api/v1/metrics`         | Task counters (submitted / completed / failed) |
 
-### Example — Submit Extraction (URL)
+Interactive docs at **<http://localhost:8000/api/v1/docs>** (Swagger UI).
+
+### Submit Extraction (URL)
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/extract \
   -H "Content-Type: application/json" \
   -d '{
     "document_url": "https://example.com/contract.pdf",
-    "callback_url": "https://api-client.com/webhooks/extraction-complete",
+    "callback_url": "https://my-app.com/webhooks/done",
     "provider": "gpt-4o",
     "passes": 2
   }'
 ```
-
-Response:
 
 ```json
 {
@@ -154,82 +96,39 @@ Response:
 }
 ```
 
-### Example — Submit Extraction (Raw Text)
+### Submit Extraction (Raw Text)
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/extract \
   -H "Content-Type: application/json" \
   -d '{
     "raw_text": "AGREEMENT between Acme Corp and ...",
-    "provider": "gpt-4o",
-    "passes": 1
+    "provider": "gpt-4o"
   }'
 ```
 
-### Example — Poll Status
+### Poll Status
 
 ```bash
-curl http://localhost:8000/api/v1/tasks/a1b2c3d4-...
+curl http://localhost:8000/api/v1/tasks/{task_id}
 ```
 
-## Configuration
+### Idempotency
 
-All configuration is driven by environment variables (loaded from `.env`):
+Pass an `idempotency_key` to prevent duplicate tasks:
 
-| Variable                  | Default            | Description                                                |
-|---------------------------|--------------------|------------------------------------------------------------|
-| `APP_NAME`                | LangExtract API    | Application display name                                   |
-| `API_V1_STR`              | /api/v1            | API version prefix                                         |
-| `ROOT_PATH`               | (empty)            | ASGI root path (reverse proxy)                             |
-| `DEBUG`                   | false              | Enable debug mode                                          |
-| `LOG_LEVEL`               | info               | Logging level                                              |
-| `CORS_ORIGINS`            | ["*"]              | JSON list of allowed origins                               |
-| `REDIS_HOST`              | redis              | Redis hostname                                             |
-| `REDIS_PORT`              | 6379               | Redis port                                                 |
-| `REDIS_DB`                | 0                  | Redis database index                                       |
-| `OPENAI_API_KEY`          | (empty)            | OpenAI API key (for GPT models)                            |
-| `GEMINI_API_KEY`          | (empty)            | Google Gemini API key                                      |
-| `LANGEXTRACT_API_KEY`     | (empty)            | Dedicated LangExtract key (falls back to `GEMINI_API_KEY`) |
-| `DEFAULT_PROVIDER`        | gpt-4o   | Default LLM model (overridable per-request)                |
-| `DEFAULT_MAX_WORKERS`     | 10                 | LangExtract parallel worker count                          |
-| `DEFAULT_MAX_CHAR_BUFFER` | 1000               | LangExtract character buffer size                          |
-| `TASK_TIME_LIMIT`         | 3600               | Hard task timeout (seconds)                                |
-| `TASK_SOFT_TIME_LIMIT`    | 3300               | Soft task timeout (seconds)                                |
-| `RESULT_EXPIRES`          | 86400              | Result TTL in Redis (seconds)                              |
+```json
+{
+  "raw_text": "...",
+  "idempotency_key": "my-unique-key-123"
+}
+```
 
-> **Multi-provider note:** The `DEFAULT_PROVIDER` env var sets the fallback.
-> Every request can override it via the `provider` field in the request body
-> (e.g. `"provider": "gpt-4o"`). OpenAI models automatically get
-> `fence_output=True` and `use_schema_constraints=False`.
+Repeat submissions with the same key return the original task ID.
 
-## Data Models
+---
 
-### Request Schema (`ExtractionRequest`)
-
-| Field               | Type            | Required | Default            | Description |
-|---------------------|-----------------|----------|--------------------|-------------|
-| `document_url`      | `string (URL)`  | *        |                    | URL to the document to extract from |
-| `raw_text`          | `string`        | *        |                    | Raw text blob to process directly |
-| `provider`          | `string`        | No       | `gpt-4o` | LLM model ID |
-| `passes`            | `integer (1-5)` | No       | `1`                | Number of extraction passes |
-| `callback_url`      | `string (URL)`  | No       |                    | Webhook URL for completion notification |
-| `extraction_config` | `object`        | No       | `{}`               | LangExtract overrides (see below) |
-
-> \* At least one of `document_url` or `raw_text` must be provided.
-
-#### `extraction_config` Keys
-
-| Key                    | Type          | Description |
-|------------------------|---------------|-------------|
-| `prompt_description`   | `string`      | Custom extraction prompt |
-| `examples`             | `list[dict]`  | Few-shot examples (`text` + `extractions`) |
-| `max_workers`          | `int`         | Override parallel worker count |
-| `max_char_buffer`      | `int`         | Override character buffer size |
-| `additional_context`   | `string`      | Extra context for the LLM |
-| `temperature`          | `float`       | LLM temperature |
-| `context_window_chars` | `int`         | Context window size in characters |
-
-### Response Schema (Success)
+## Response Schema
 
 ```json
 {
@@ -254,72 +153,199 @@ All configuration is driven by environment variables (loaded from `.env`):
     ],
     "metadata": {
       "provider": "gpt-4o",
-      "tokens_used": 0,
+      "tokens_used": 1234,
       "processing_time_ms": 1200
     }
   }
 }
 ```
 
-### Entity Schema (`ExtractedEntity`)
+> `tokens_used` is `null` when the provider does not report usage.
 
-| Field              | Type     | Description |
-|--------------------|----------|-------------|
-| `extraction_class` | `string` | Entity class (e.g. `party`, `date`, `monetary_amount`, `term`) |
-| `extraction_text`  | `string` | Exact text extracted from the source |
-| `attributes`       | `object` | Key-value pairs providing context |
-| `char_start`       | `int?`   | Start character offset in the source |
-| `char_end`         | `int?`   | End character offset in the source |
+---
 
-## LangExtract Integration
+## Configuration
 
-This API uses [Google's LangExtract](https://github.com/google/langextract) library for LLM-based structured extraction. The default configuration extracts contract entities (parties, dates, monetary amounts, terms) using few-shot prompting.
+All settings are driven by environment variables (`.env` file supported):
 
-Customise extraction behaviour per-request via the `extraction_config` field,
-or modify the defaults in `app/extraction_defaults.py`.
+### General
+
+| Variable       | Default         | Description                       |
+|----------------|-----------------|-----------------------------------|
+| `APP_NAME`     | LangExtract API | Display name                      |
+| `API_V1_STR`   | /api/v1         | API version prefix                |
+| `ROOT_PATH`    | _(empty)_       | ASGI root path (reverse proxy)    |
+| `DEBUG`        | false           | Enable debug mode                 |
+| `LOG_LEVEL`    | info            | Logging level                     |
+| `CORS_ORIGINS` | ["*"]           | JSON list of allowed CORS origins |
+
+### Redis / Celery
+
+| Variable               | Default | Description                   |
+|------------------------|---------|-------------------------------|
+| `REDIS_HOST`           | redis   | Redis hostname                |
+| `REDIS_PORT`           | 6379    | Redis port                    |
+| `REDIS_DB`             | 0       | Redis database index          |
+| `RESULT_EXPIRES`       | 86400   | Result TTL in Redis (seconds) |
+| `TASK_TIME_LIMIT`      | 3600    | Hard task timeout (seconds)   |
+| `TASK_SOFT_TIME_LIMIT` | 3300    | Soft task timeout (seconds)   |
+
+### LLM / Extraction
+
+| Variable                 | Default   | Description                                      |
+|--------------------------|-----------|--------------------------------------------------|
+| `DEFAULT_PROVIDER`       | gpt-4o    | Default model (overridable per-request)          |
+| `DEFAULT_MAX_WORKERS`    | 10        | LangExtract parallel workers                     |
+| `DEFAULT_MAX_CHAR_BUFFER`| 1000      | LangExtract character buffer                     |
+| `OPENAI_API_KEY`         | _(empty)_ | OpenAI key (for GPT models)                      |
+| `GEMINI_API_KEY`         | _(empty)_ | Google Gemini key                                |
+| `LANGEXTRACT_API_KEY`    | _(empty)_ | Dedicated key (falls back to `GEMINI_API_KEY`)   |
+
+### Security
+
+| Variable                 | Default   | Description                                    |
+|--------------------------|-----------|------------------------------------------------|
+| `ALLOWED_URL_DOMAINS`    | _(empty)_ | Comma-separated allow-list for document URLs   |
+| `WEBHOOK_SECRET`         | _(empty)_ | HMAC-SHA256 key for signing webhook payloads   |
+| `DOC_DOWNLOAD_TIMEOUT`   | 30        | Document download timeout (seconds)            |
+| `DOC_DOWNLOAD_MAX_BYTES` | 50000000  | Max document size (bytes)                      |
+
+### Batch
+
+| Variable           | Default | Description                    |
+|--------------------|---------|--------------------------------|
+| `BATCH_CONCURRENCY`| 4       | Max parallel batch extractions |
+
+> **Multi-provider:** every request can override the model via `"provider": "gemini-2.5-flash"`.
+> OpenAI models automatically get `fence_output=True` and `use_schema_constraints=False`.
+
+---
+
+## Customising Extraction
+
+The default prompt extracts contract entities (parties, dates, monetary amounts, terms).
+Override per-request via `extraction_config`:
+
+```json
+{
+  "raw_text": "Take Aspirin 81 mg daily.",
+  "extraction_config": {
+    "prompt_description": "Extract medication names and dosages.",
+    "examples": [
+      {
+        "text": "Take Aspirin 81 mg daily.",
+        "extractions": [
+          {
+            "extraction_class": "medication",
+            "extraction_text": "Aspirin 81 mg",
+            "attributes": { "dosage": "81 mg", "frequency": "daily" }
+          }
+        ]
+      }
+    ],
+    "temperature": 0.2
+  }
+}
+```
+
+| `extraction_config` key | Type         | Description                       |
+|-------------------------|--------------|-----------------------------------|
+| `prompt_description`    | `string`     | Custom extraction prompt          |
+| `examples`              | `list[dict]` | Few-shot examples                 |
+| `max_workers`           | `int`        | Parallel worker count             |
+| `max_char_buffer`       | `int`        | Character buffer size             |
+| `additional_context`    | `string`     | Extra context for the LLM        |
+| `temperature`           | `float`      | LLM temperature (0.0–2.0)        |
+| `context_window_chars`  | `int`        | Context window size in characters |
+
+To change the **global** defaults, edit `app/core/defaults.py`.
 
 ### Supported Models
 
-| Provider | Models | Notes |
-|----------|--------|-------|
-| Google   | `gpt-4o`, `gemini-2.5-pro`, `gemini-2.0-flash` | Default; uses `GEMINI_API_KEY` or `LANGEXTRACT_API_KEY` |
-| OpenAI   | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` | Uses `OPENAI_API_KEY`; auto-sets `fence_output=True` |
+| Provider | Models                               | Key variable     |
+|----------|--------------------------------------|------------------|
+| Google   | `gemini-2.5-pro`, `gemini-2.0-flash` | `GEMINI_API_KEY` |
+| OpenAI   | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` | `OPENAI_API_KEY` |
 
-## Running Tests
+---
 
-```bash
-# Run all tests
-uv run pytest
+## Security
 
-# Run with coverage
-uv run pytest --cov=app --cov-report=term-missing
+- **SSRF protection** — private IP / localhost blocking, subdomain matching, URL length limit (2 048 chars), DNS resolution timeout (5 s)
+- **Domain allow-list** — set `ALLOWED_URL_DOMAINS` to restrict accepted document URLs
+- **Webhook HMAC signing** — set `WEBHOOK_SECRET` to sign outbound webhooks (`X-Signature` header, HMAC-SHA256)
+- **Provider validation** — model IDs are validated against a strict regex pattern
 
-# Run a specific test file
-uv run pytest tests/test_tasks.py -v
+See [docs/security.md](docs/security.md) for full details.
+
+---
+
+## Project Structure
+
 ```
+langextract-api/
+├── app/
+│   ├── main.py                    # App factory, middleware, lifespan
+│   ├── core/
+│   │   ├── config.py              # Settings, Redis pool
+│   │   ├── defaults.py            # Default prompt & few-shot examples
+│   │   ├── logging.py             # Structured logging setup
+│   │   └── security.py            # SSRF protection, URL validation
+│   ├── services/
+│   │   ├── extractor.py           # Extraction business logic
+│   │   └── webhook.py             # Result persistence & webhook delivery
+│   ├── workers/
+│   │   ├── celery_app.py          # Celery app configuration
+│   │   └── tasks.py               # Celery task definitions
+│   ├── api/
+│   │   ├── deps.py                # FastAPI dependencies (Redis, etc.)
+│   │   └── routes/
+│   │       ├── extraction.py      # POST /extract, POST /extract/batch
+│   │       ├── health.py          # GET /health, GET /metrics
+│   │       └── tasks.py           # GET/DELETE /tasks/{task_id}
+│   └── schemas/
+│       └── extraction.py          # Pydantic request/response models
+├── tests/                         # pytest suite (147 tests)
+├── docs/                          # security.md, deployment.md, recipes.md
+├── examples/                      # curl scripts, JSON config samples
+├── docker/
+│   ├── Dockerfile                 # Multi-stage build
+│   └── entrypoint.sh              # web / worker / flower / beat
+├── docker-compose.yml
+├── pyproject.toml
+├── Makefile
+└── README.md
+```
+
+---
 
 ## Development
 
 ```bash
-# Lint
-uv run ruff check .
-
-# Format
-uv run ruff format .
-
-# Lint + auto-fix
-uv run ruff check --fix .
-```
-
-Or use the Makefile shortcuts:
-
-```bash
+make install   # uv sync
 make lint      # ruff check + format check
 make format    # auto-format
-make test      # pytest with coverage
+make test      # pytest -v
+make test-cov  # pytest with coverage
 make dev       # docker compose up --build
 make clean     # docker compose down -v
 ```
+
+### Running Tests
+
+```bash
+uv run pytest -v                           # all tests
+uv run pytest --cov=app --cov-report=term  # with coverage
+uv run pytest tests/test_tasks.py -v       # single file
+```
+
+---
+
+## Further Reading
+
+- [docs/security.md](docs/security.md) — SSRF protection, HMAC webhooks, domain allow-lists
+- [docs/deployment.md](docs/deployment.md) — Production deployment guide
+- [docs/recipes.md](docs/recipes.md) — Common usage patterns and examples
 
 ## License
 

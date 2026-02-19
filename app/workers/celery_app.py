@@ -1,27 +1,33 @@
 """
 Celery application configuration.
 
-Instantiates and configures the Celery app used by both the worker
-process and the FastAPI application (for ``task.delay()`` calls).
+Instantiates and configures the Celery app used by both the
+worker process and the FastAPI application (for ``task.delay()``
+calls).
 
 Usage — start a worker::
 
-    celery -A app.worker.celery_app worker --loglevel=info
+    celery -A app.workers.celery_app worker --loglevel=info
 """
+
+from __future__ import annotations
 
 from celery import Celery
 
-from app.dependencies import get_settings
-from app.logging_config import setup_logging
+from app.core.config import get_settings
+from app.core.logging import setup_logging
 
 settings = get_settings()
-setup_logging(level=settings.LOG_LEVEL, json_format=not settings.DEBUG)
+setup_logging(
+    level=settings.LOG_LEVEL,
+    json_format=not settings.DEBUG,
+)
 
 celery_app = Celery(
     "langextract-worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks"],
+    include=["app.workers.tasks"],
 )
 
 celery_app.conf.update(

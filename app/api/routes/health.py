@@ -2,62 +2,27 @@
 
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
-from app.dependencies import get_version
+from app.core.config import get_version
+from app.core.metrics import get_metrics
 from app.schemas import CeleryHealthResponse, HealthResponse
-from app.worker import celery_app
+from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["health"])
 
 _version = get_version()
 
-# ── Metrics counters (in-process; Prometheus-compatible) ────────────────
 
-_metrics: dict[str, float | int] = {
-    "tasks_submitted_total": 0,
-    "tasks_succeeded_total": 0,
-    "tasks_failed_total": 0,
-    "task_duration_seconds_sum": 0.0,
-}
-
-
-def record_task_submitted() -> None:
-    """Increment the submitted-task counter.
-
-    Called from the extraction router on every ``POST /extract``.
-    """
-    _metrics["tasks_submitted_total"] += 1
-
-
-def record_task_completed(
-    *,
-    success: bool,
-    duration_s: float,
-) -> None:
-    """Record a task completion event.
-
-    Args:
-        success: ``True`` if the task succeeded, ``False`` on failure.
-        duration_s: Wall-clock duration of the task in seconds.
-    """
-    if success:
-        _metrics["tasks_succeeded_total"] += 1
-    else:
-        _metrics["tasks_failed_total"] += 1
-    _metrics["task_duration_seconds_sum"] += duration_s
-
-
-# ── Routes ──────────────────────────────────────────────────────────────────
+# ── Routes ──────────────────────────────────────────────────────
 
 
 @router.get("/health", response_model=HealthResponse)
 def health_check() -> HealthResponse:
-    """Liveness probe — returns OK if the web process is running."""
+    """Liveness probe — returns OK if the web process runs."""
     return HealthResponse(status="ok", version=_version)
 
 
@@ -72,8 +37,6 @@ def celery_health_check() -> CeleryHealthResponse:
     hanging when the broker or workers are unreachable.
     """
     try:
-        # Run the potentially slow inspect call in a thread
-        # with a hard timeout so the endpoint stays responsive.
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_inspect_workers)
             workers = future.result(timeout=5)
@@ -139,21 +102,22 @@ def prometheus_metrics() -> str:
     Returns counters for submitted, succeeded, and failed tasks
     as well as cumulative task duration.
     """
+    m = get_metrics()
     lines = [
-        "# HELP tasks_submitted_total " "Total extraction tasks submitted.",
+        "# HELP tasks_submitted_total Total extraction tasks submitted.",
         "# TYPE tasks_submitted_total counter",
-        f"tasks_submitted_total " f"{int(_metrics['tasks_submitted_total'])}",
+        f"tasks_submitted_total {int(m['tasks_submitted_total'])}",
         "",
-        "# HELP tasks_succeeded_total " "Total extraction tasks that succeeded.",
+        "# HELP tasks_succeeded_total Total extraction tasks that succeeded.",
         "# TYPE tasks_succeeded_total counter",
-        f"tasks_succeeded_total " f"{int(_metrics['tasks_succeeded_total'])}",
+        f"tasks_succeeded_total {int(m['tasks_succeeded_total'])}",
         "",
-        "# HELP tasks_failed_total " "Total extraction tasks that failed.",
+        "# HELP tasks_failed_total Total extraction tasks that failed.",
         "# TYPE tasks_failed_total counter",
-        f"tasks_failed_total " f"{int(_metrics['tasks_failed_total'])}",
+        f"tasks_failed_total {int(m['tasks_failed_total'])}",
         "",
-        "# HELP task_duration_seconds_sum " "Cumulative task processing time.",
+        "# HELP task_duration_seconds_sum Cumulative task processing time.",
         "# TYPE task_duration_seconds_sum counter",
-        f"task_duration_seconds_sum " f"{_metrics['task_duration_seconds_sum']:.3f}",
+        f"task_duration_seconds_sum {m['task_duration_seconds_sum']:.3f}",
     ]
     return "\n".join(lines) + "\n"

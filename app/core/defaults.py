@@ -9,7 +9,7 @@ Override per-request by including the corresponding keys in the
 Example ``extraction_config`` override::
 
     {
-        "prompt_description": "Extract medication names and dosages …",
+        "prompt_description": "Extract medication names …",
         "examples": [
             {
                 "text": "Take Aspirin 81 mg daily.",
@@ -17,7 +17,10 @@ Example ``extraction_config`` override::
                     {
                         "extraction_class": "medication",
                         "extraction_text": "Aspirin 81 mg",
-                        "attributes": {"dosage": "81 mg", "frequency": "daily"}
+                        "attributes": {
+                            "dosage": "81 mg",
+                            "frequency": "daily"
+                        }
                     }
                 ]
             }
@@ -29,22 +32,26 @@ Example ``extraction_config`` override::
 
 DEFAULT_PROMPT_DESCRIPTION: str = (
     "Extract key contract entities in order of appearance. "
-    "Use exact text for extractions. Do not paraphrase or overlap entities. "
-    "Provide meaningful attributes for each entity to add context."
+    "Use exact text for extractions. Do not paraphrase or "
+    "overlap entities. "
+    "Provide meaningful attributes for each entity to add "
+    "context."
 )
 
 # ── Default few-shot examples ───────────────────────────────────────────────
-# Stored as plain dicts so this module has zero runtime dependencies.
-# Converted to ``lx.data.ExampleData`` objects inside ``tasks.py``.
+# Stored as plain dicts so this module has zero runtime
+# dependencies.  Converted to ``lx.data.ExampleData`` objects
+# inside the extractor service.
 
 DEFAULT_EXAMPLES: list[dict] = [
     {
         "text": (
-            "This Agreement ('Agreement') is entered into as of "
-            "January 15, 2025, by and between Acme Corporation, "
-            "a Delaware corporation ('Seller'), and Global "
-            "Industries LLC ('Buyer'). The total purchase price "
-            "shall be $2,500,000 payable within 30 days of closing."
+            "This Agreement ('Agreement') is entered into as "
+            "of January 15, 2025, by and between Acme "
+            "Corporation, a Delaware corporation ('Seller'), "
+            "and Global Industries LLC ('Buyer'). The total "
+            "purchase price shall be $2,500,000 payable within "
+            "30 days of closing."
         ),
         "extractions": [
             {

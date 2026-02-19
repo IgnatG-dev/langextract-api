@@ -6,16 +6,16 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app.dependencies import get_redis_client, get_settings
-from app.routers.health import record_task_submitted
+from app.core.config import get_redis_client, get_settings
+from app.core.metrics import record_task_submitted
+from app.core.security import validate_url
 from app.schemas import (
     BatchExtractionRequest,
     BatchTaskSubmitResponse,
     ExtractionRequest,
     TaskSubmitResponse,
 )
-from app.security import validate_url
-from app.tasks import extract_batch, extract_document
+from app.workers.tasks import extract_batch, extract_document
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +23,12 @@ router = APIRouter(tags=["extraction"])
 
 # Redis key prefix for idempotency mappings
 _IDEM_PREFIX = "idempotency:"
-_IDEM_TTL = 86400  # 24 hours
 
 
 def _validate_request_urls(
     request: ExtractionRequest,
 ) -> None:
-    """Validate document_url and callback_url against SSRF rules.
+    """Validate document_url and callback_url against SSRF.
 
     Args:
         request: The extraction request to validate.
@@ -79,7 +78,7 @@ def submit_extraction(
     """
     _validate_request_urls(request)
 
-    # ── Idempotency check ───────────────────────────────────────
+    # ── Idempotency check ───────────────────────────────────
     if request.idempotency_key:
         redis_client = get_redis_client()
         try:
@@ -94,12 +93,12 @@ def submit_extraction(
                 return TaskSubmitResponse(
                     task_id=existing_task_id,
                     status="submitted",
-                    message="Duplicate request — returning " "existing task",
+                    message=("Duplicate request — returning existing task"),
                 )
         finally:
             redis_client.close()
 
-    # ── Submit task ─────────────────────────────────────────────
+    # ── Submit task ─────────────────────────────────────────
     extraction_config = request.extraction_config.to_flat_dict()
 
     task = extract_document.delay(
@@ -113,10 +112,15 @@ def submit_extraction(
 
     # Store idempotency mapping
     if request.idempotency_key:
+        settings = get_settings()
         redis_client = get_redis_client()
         try:
             idem_key = f"{_IDEM_PREFIX}{request.idempotency_key}"
-            redis_client.setex(idem_key, _IDEM_TTL, task.id)
+            redis_client.setex(
+                idem_key,
+                settings.RESULT_EXPIRES,
+                task.id,
+            )
         finally:
             redis_client.close()
 
@@ -161,7 +165,7 @@ def submit_batch_extraction(
             ) from exc
 
     documents = [doc.model_dump(mode="json") for doc in request.documents]
-    # Convert nested ExtractionConfig objects to flat dicts
+    # Convert nested ExtractionConfig → flat dicts
     for doc_dict in documents:
         cfg = doc_dict.get("extraction_config")
         if isinstance(cfg, dict) and cfg:
@@ -181,7 +185,7 @@ def submit_batch_extraction(
 
     return BatchTaskSubmitResponse(
         batch_task_id=task.id,
-        document_task_ids=[],  # populated by the batch task
+        document_task_ids=[],
         status="submitted",
         message=(
             f"Batch '{request.batch_id}' submitted "

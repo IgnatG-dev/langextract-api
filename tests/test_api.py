@@ -58,10 +58,10 @@ async def test_submit_extraction_with_url():
     """Test submitting an extraction task with a document URL."""
     with (
         patch(
-            "app.routers.extraction.extract_document",
+            "app.api.routes.extraction.extract_document",
         ) as mock_task,
         patch(
-            "app.routers.extraction.validate_url",
+            "app.api.routes.extraction.validate_url",
             return_value="https://example.com/doc.pdf",
         ),
     ):
@@ -77,7 +77,7 @@ async def test_submit_extraction_with_url():
             response = await client.post(
                 "/api/v1/extract",
                 json={
-                    "document_url": "https://example.com/doc.pdf",
+                    "document_url": ("https://example.com/doc.pdf"),
                     "provider": "gpt-4o",
                     "passes": 2,
                     "callback_url": ("https://nestjs.example.com/webhooks/done"),
@@ -98,7 +98,7 @@ async def test_submit_extraction_with_url():
 async def test_submit_extraction_with_raw_text():
     """Test submitting an extraction task with raw text."""
     with patch(
-        "app.routers.extraction.extract_document",
+        "app.api.routes.extraction.extract_document",
     ) as mock_task:
         mock_result = MagicMock()
         mock_result.id = "task-id-text-456"
@@ -162,17 +162,17 @@ async def test_provider_validation_rejects_bad_input():
 
 @pytest.mark.asyncio
 async def test_submit_batch_extraction():
-    """Test submitting a batch extraction task with callback_url."""
+    """Test submitting a batch extraction task."""
     with (
         patch(
-            "app.routers.extraction.extract_batch",
+            "app.api.routes.extraction.extract_batch",
         ) as mock_task,
         patch(
-            "app.routers.extraction.validate_url",
+            "app.api.routes.extraction.validate_url",
             return_value="ok",
         ),
         patch(
-            "app.routers.extraction.get_settings",
+            "app.api.routes.extraction.get_settings",
         ) as mock_gs,
     ):
         mock_gs.return_value.BATCH_CONCURRENCY = 4
@@ -189,7 +189,7 @@ async def test_submit_batch_extraction():
                 "/api/v1/extract/batch",
                 json={
                     "batch_id": "batch-001",
-                    "callback_url": ("https://nestjs.example.com" "/webhooks/batch"),
+                    "callback_url": ("https://nestjs.example.com/webhooks/batch"),
                     "documents": [
                         {
                             "document_url": ("https://example.com/a.pdf"),
@@ -218,7 +218,9 @@ async def test_submit_batch_extraction():
 @pytest.mark.asyncio
 async def test_get_task_status_pending():
     """Test polling a pending task."""
-    with patch("app.routers.tasks.AsyncResult") as mock_ar:
+    with patch(
+        "app.api.routes.tasks.AsyncResult",
+    ) as mock_ar:
         mock_instance = MagicMock()
         mock_instance.state = "PENDING"
         mock_instance.info = None
@@ -243,7 +245,7 @@ async def test_get_task_status_pending():
 async def test_revoke_task():
     """Test revoking a task."""
     with patch(
-        "app.routers.tasks.celery_app",
+        "app.api.routes.tasks.celery_app",
     ) as mock_celery:
         transport = ASGITransport(app=app)
         async with AsyncClient(
@@ -286,7 +288,7 @@ async def test_idempotency_key_returns_existing_task():
     mock_redis.get.return_value = "existing-task-id"
 
     with patch(
-        "app.routers.extraction.get_redis_client",
+        "app.api.routes.extraction.get_redis_client",
         return_value=mock_redis,
     ):
         transport = ASGITransport(app=app)

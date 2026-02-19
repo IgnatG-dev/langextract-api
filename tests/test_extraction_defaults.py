@@ -8,7 +8,10 @@ Validates:
 
 from __future__ import annotations
 
-from app.extraction_defaults import DEFAULT_EXAMPLES, DEFAULT_PROMPT_DESCRIPTION
+from app.core.defaults import (
+    DEFAULT_EXAMPLES,
+    DEFAULT_PROMPT_DESCRIPTION,
+)
 
 
 class TestDefaultPromptDescription:
@@ -63,10 +66,16 @@ class TestDefaultExamples:
 
     def test_examples_are_buildable(self):
         """Default examples can be converted via _build_examples."""
-        from app.tasks import _build_examples
+        from app.services.extractor import _build_examples
 
         result = _build_examples(DEFAULT_EXAMPLES)
         assert len(result) == len(DEFAULT_EXAMPLES)
         # Each result should have extractions
-        for built, raw in zip(result, DEFAULT_EXAMPLES, strict=True):
-            assert len(built.extractions) == len(raw["extractions"])
+        for built, raw in zip(
+            result,
+            DEFAULT_EXAMPLES,
+            strict=True,
+        ):
+            assert len(built.extractions) == len(
+                raw["extractions"],
+            )

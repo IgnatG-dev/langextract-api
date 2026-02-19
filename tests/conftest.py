@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -11,13 +12,12 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
-# ── HTTP client ─────────────────────────────────────────────────────────────
+# ── HTTP client ─────────────────────────────────────────────
 
 
 @pytest.fixture
-async def client() -> AsyncClient:  # type: ignore[misc]
-    """
-    Yield an async HTTP client bound to the FastAPI app.
+async def client() -> AsyncGenerator[AsyncClient, None]:
+    """Yield an async HTTP client bound to the FastAPI app.
 
     Usage::
 
@@ -32,7 +32,7 @@ async def client() -> AsyncClient:  # type: ignore[misc]
         yield ac
 
 
-# ── Settings override ──────────────────────────────────────────────────────
+# ── Settings override ──────────────────────────────────────
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def mock_settings():
     return settings
 
 
-# ── LangExtract mock dataclasses ───────────────────────────────────────────
+# ── LangExtract mock dataclasses ──────────────────────────
 
 
 @dataclass
@@ -96,12 +96,14 @@ class FakeAnnotatedDocument:
     """Stand-in for ``lx.data.AnnotatedDocument``."""
 
     text: str = ""
-    extractions: list[FakeExtraction] = field(default_factory=list)
+    extractions: list[FakeExtraction] = field(
+        default_factory=list,
+    )
 
 
 @pytest.fixture
 def fake_annotated_document() -> FakeAnnotatedDocument:
-    """Return a realistic mock AnnotatedDocument with two entities."""
+    """Return a realistic mock AnnotatedDocument."""
     return FakeAnnotatedDocument(
         text="Agreement by Acme Corp dated January 1, 2025",
         extractions=[
@@ -129,9 +131,9 @@ def fake_annotated_document() -> FakeAnnotatedDocument:
 
 @pytest.fixture
 def mock_lx_extract(fake_annotated_document):
-    """Patch ``lx.extract()`` to return a fake AnnotatedDocument."""
+    """Patch ``lx.extract()`` in the extractor service."""
     with patch(
-        "app.tasks.lx.extract",
+        "app.services.extractor.lx.extract",
         return_value=fake_annotated_document,
     ) as m:
         yield m
