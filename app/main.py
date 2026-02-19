@@ -13,8 +13,10 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
     RequestResponseEndpoint,
@@ -39,8 +41,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
     If the client provides an ``X-Request-ID`` header it is reused;
     otherwise a new UUID-4 is generated.  The value is stored on
-    ``request.state.request_id`` for downstream handlers and logged
-    with every request.
+    ``request.state.request_id`` for downstream handlers and bound
+    as a structlog context variable so that every log line emitted
+    during the request lifecycle includes the ``request_id``.
     """
 
     async def dispatch(
@@ -54,6 +57,13 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             str(uuid.uuid4()),
         )
         request.state.request_id = request_id
+
+        # Bind request_id into structlog context so every log
+        # line emitted during this request includes it.
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+        )
 
         start = time.perf_counter()
         response = await call_next(request)
@@ -120,3 +130,9 @@ app.include_router(health.router, prefix=settings.API_V1_STR)
 app.include_router(extract.router, prefix=settings.API_V1_STR)
 app.include_router(batch.router, prefix=settings.API_V1_STR)
 app.include_router(tasks.router, prefix=settings.API_V1_STR)
+
+# ── Prometheus HTTP instrumentation ────────────────────────────────────────
+# Adds automatic request duration, count, and size metrics on
+# the default ``prometheus_client`` registry.  Task-level metrics
+# are served from a dedicated registry in ``health.router``.
+Instrumentator().instrument(app)

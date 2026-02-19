@@ -1,9 +1,14 @@
 """
-Centralized logging configuration.
+Centralized logging configuration powered by structlog.
 
-Provides structured JSON logging for production and human-readable
-output for local development.  Import ``setup_logging`` early in
-the application lifecycle (e.g. in ``main.py`` or ``celery_app.py``).
+Provides structured JSON logging for production and
+human-readable coloured output for local development.
+Import ``setup_logging`` early in the application
+lifecycle (e.g. in ``main.py`` or ``celery_app.py``).
+
+Context variables (``request_id``, etc.) are injected
+via ``structlog.contextvars`` — see the
+``RequestIDMiddleware`` in ``app.main``.
 """
 
 from __future__ import annotations
@@ -11,74 +16,77 @@ from __future__ import annotations
 import logging
 import sys
 
+import structlog
+
 
 def setup_logging(
     level: str = "INFO",
     *,
     json_format: bool = False,
 ) -> None:
-    """Configure the root logger for the application.
+    """Configure structlog + stdlib root logger.
 
-    The JSON format includes a ``request_id`` placeholder that is
-    populated by the ``RequestIDMiddleware`` when running inside
-    the FastAPI process.
+    structlog is configured as a **wrapper** around stdlib
+    ``logging`` so that every existing ``logging.getLogger()``
+    call throughout the codebase automatically benefits from
+    structured output and context-variable injection.
 
     Args:
-        level: Logging level name (e.g. ``"INFO"``, ``"DEBUG"``).
+        level: Logging level name (e.g. ``"INFO"``,
+            ``"DEBUG"``).
         json_format: If ``True``, emit structured JSON lines.
             Recommended for containerised / production
             environments.
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
+    # Shared processors used by both structlog-native loggers
+    # and stdlib loggers that pass through structlog.
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
+    ]
+
     if json_format:
-        fmt = (
-            '{"time":"%(asctime)s",'
-            '"level":"%(levelname)s",'
-            '"logger":"%(name)s",'
-            '"request_id":"%(request_id)s",'
-            '"message":"%(message)s"}'
-        )
+        renderer: structlog.types.Processor = structlog.processors.JSONRenderer()
     else:
-        fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+        renderer = structlog.dev.ConsoleRenderer()
+
+    # ── Configure structlog ─────────────────────────────────
+    structlog.configure(
+        processors=[
+            *shared_processors,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    # ── Configure stdlib root logger ────────────────────────
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            renderer,
+        ],
+        foreign_pre_chain=shared_processors,
+    )
 
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(fmt))
-
-    # Add a filter that injects a default ``request_id`` so the
-    # formatter never fails on a missing key.
-    handler.addFilter(_RequestIDFilter())
+    handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.setLevel(log_level)
-
-    # Avoid duplicate handlers on repeated calls
     root.handlers.clear()
     root.addHandler(handler)
 
     # Quiet noisy third-party loggers
     _silence_noisy_loggers(log_level)
-
-
-class _RequestIDFilter(logging.Filter):
-    """Inject ``request_id`` into every log record.
-
-    Defaults to ``"-"`` when no request context is available
-    (e.g. in Celery workers or CLI scripts).
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Add ``request_id`` attribute to *record*.
-
-        Args:
-            record: The log record to augment.
-
-        Returns:
-            Always ``True`` (never suppress records).
-        """
-        if not hasattr(record, "request_id"):
-            record.request_id = "-"  # type: ignore[attr-defined]
-        return True
 
 
 def _silence_noisy_loggers(app_level: int) -> None:

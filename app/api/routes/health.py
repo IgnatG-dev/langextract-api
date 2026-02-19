@@ -5,10 +5,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    generate_latest,
+)
 
 from app.core.config import get_version
-from app.core.metrics import get_metrics
+from app.core.metrics import REGISTRY
 from app.schemas import CeleryHealthResponse, HealthResponse
 from app.workers.celery_app import celery_app
 
@@ -96,28 +100,15 @@ def _inspect_workers() -> list[dict[str, object]]:
     response_class=PlainTextResponse,
     tags=["observability"],
 )
-def prometheus_metrics() -> str:
-    """Expose basic Prometheus-format metrics.
+def prometheus_metrics() -> Response:
+    """Expose Prometheus-format metrics.
 
-    Returns counters for submitted, succeeded, and failed tasks
-    as well as cumulative task duration.
+    Returns Celery task counters from the dedicated
+    ``REGISTRY`` (backed by Redis).  HTTP request-level
+    metrics are served by ``prometheus-fastapi-instrumentator``
+    on the default registry.
     """
-    m = get_metrics()
-    lines = [
-        "# HELP tasks_submitted_total Total extraction tasks submitted.",
-        "# TYPE tasks_submitted_total counter",
-        f"tasks_submitted_total {int(m['tasks_submitted_total'])}",
-        "",
-        "# HELP tasks_succeeded_total Total extraction tasks that succeeded.",
-        "# TYPE tasks_succeeded_total counter",
-        f"tasks_succeeded_total {int(m['tasks_succeeded_total'])}",
-        "",
-        "# HELP tasks_failed_total Total extraction tasks that failed.",
-        "# TYPE tasks_failed_total counter",
-        f"tasks_failed_total {int(m['tasks_failed_total'])}",
-        "",
-        "# HELP task_duration_seconds_sum Cumulative task processing time.",
-        "# TYPE task_duration_seconds_sum counter",
-        f"task_duration_seconds_sum {m['task_duration_seconds_sum']:.3f}",
-    ]
-    return "\n".join(lines) + "\n"
+    return Response(
+        content=generate_latest(REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )

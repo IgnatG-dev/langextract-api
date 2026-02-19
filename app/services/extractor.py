@@ -15,6 +15,12 @@ import time
 from typing import Any
 
 import langextract as lx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_none,
+)
 
 from app.core.config import get_settings
 from app.core.constants import STATUS_COMPLETED
@@ -44,6 +50,12 @@ MAX_LLM_RETRIES: int = 2
 # ── LLM retry wrapper ──────────────────────────────────────
 
 
+@retry(
+    retry=retry_if_exception_type(ValueError),
+    stop=stop_after_attempt(MAX_LLM_RETRIES + 1),
+    wait=wait_none(),
+    reraise=True,
+)
 def _run_lx_extract_with_retry(
     extract_kwargs: dict[str, Any],
     source: str,
@@ -56,11 +68,14 @@ def _run_lx_extract_with_retry(
     the output is non-deterministic, an immediate re-invocation
     usually succeeds.
 
+    Retries are handled by ``tenacity``; the ``max_retries``
+    parameter is kept for backward compatibility but the actual
+    attempt count is governed by ``MAX_LLM_RETRIES``.
+
     Args:
         extract_kwargs: Keyword arguments for ``lx.extract()``.
         source: Human-readable source label for logs.
-        max_retries: How many extra attempts after the initial
-            call.
+        max_retries: Kept for API compatibility (unused).
 
     Returns:
         The result of ``lx.extract()``.
@@ -68,31 +83,7 @@ def _run_lx_extract_with_retry(
     Raises:
         ValueError: If all attempts fail with the same error.
     """
-    last_exc: ValueError | None = None
-
-    for attempt in range(1, max_retries + 2):
-        try:
-            return lx.extract(**extract_kwargs)
-        except ValueError as exc:
-            last_exc = exc
-            if attempt <= max_retries:
-                logger.warning(
-                    "LLM returned malformed output for %s "
-                    "(attempt %d/%d): %s — retrying",
-                    source,
-                    attempt,
-                    max_retries + 1,
-                    exc,
-                )
-            else:
-                logger.error(
-                    "LLM returned malformed output for %s after %d attempt(s): %s",
-                    source,
-                    attempt,
-                    exc,
-                )
-
-    raise last_exc  # type: ignore[misc]
+    return lx.extract(**extract_kwargs)
 
 
 # ── Core extraction logic ───────────────────────────────────
