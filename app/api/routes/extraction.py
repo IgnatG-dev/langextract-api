@@ -173,19 +173,31 @@ def submit_batch_extraction(
                 k: v for k, v in cfg.items() if v is not None
             }
 
-    settings = get_settings()
     task = extract_batch.delay(
         batch_id=request.batch_id,
         documents=documents,
         callback_url=(str(request.callback_url) if request.callback_url else None),
-        concurrency=settings.BATCH_CONCURRENCY,
     )
+
+    # Retrieve the per-document child task IDs that the
+    # batch task will create.  The IDs are predictable because
+    # `group().apply_async()` allocates them before returning.
+    child_ids: list[str] = []
+    try:
+        from celery.result import AsyncResult
+
+        parent = AsyncResult(task.id, app=extract_batch.app)
+        # children are set once the group is dispatched
+        if parent.children:
+            child_ids = [c.id for c in parent.children]
+    except Exception:
+        pass
 
     record_task_submitted()
 
     return BatchTaskSubmitResponse(
         batch_task_id=task.id,
-        document_task_ids=[],
+        document_task_ids=child_ids,
         status="submitted",
         message=(
             f"Batch '{request.batch_id}' submitted "

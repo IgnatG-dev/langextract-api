@@ -28,13 +28,38 @@ HTTP client directly (a future enhancement).
 
 ## Webhook HMAC Signing
 
-When `WEBHOOK_SECRET` is configured, every webhook POST includes:
+When `WEBHOOK_SECRET` is configured, every webhook POST includes two
+extra headers:
 
-- `X-Webhook-Signature` — `HMAC-SHA256(secret, "<timestamp>.<body>")`
-- `X-Webhook-Timestamp` — Unix epoch seconds
+| Header                  | Value                                              |
+|-------------------------|----------------------------------------------------|
+| `X-Webhook-Timestamp`   | Unix epoch seconds (integer as string)             |
+| `X-Webhook-Signature`   | Hex-encoded HMAC-SHA256 of `{timestamp}.{body}`   |
 
-Consumers should verify the signature and reject timestamps older
-than a few minutes to prevent replay attacks.
+### Signature construction
+
+```
+message  = f"{timestamp}.".encode() + raw_body_bytes
+signature = HMAC-SHA256(secret.encode(), message).hexdigest()
+```
+
+### Verification (receiver side)
+
+1. Read `X-Webhook-Timestamp` and `X-Webhook-Signature` headers.
+2. Reject if the timestamp is older than 5 minutes (replay
+   protection).
+3. Compute the expected signature:
+
+   ```python
+   expected = hmac.new(
+       secret.encode(),
+       f"{timestamp}.".encode() + raw_body,
+       hashlib.sha256,
+   ).hexdigest()
+   ```
+
+4. Use `hmac.compare_digest(expected, received_signature)` to
+   compare (constant-time).
 
 ## API Key Management
 

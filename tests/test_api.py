@@ -171,14 +171,12 @@ async def test_submit_batch_extraction():
             "app.api.routes.extraction.validate_url",
             return_value="ok",
         ),
-        patch(
-            "app.api.routes.extraction.get_settings",
-        ) as mock_gs,
     ):
-        mock_gs.return_value.BATCH_CONCURRENCY = 4
         mock_result = MagicMock()
         mock_result.id = "batch-task-id-789"
         mock_task.delay.return_value = mock_result
+        # Mock the AsyncResult lookup for child IDs
+        mock_task.app = MagicMock()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(

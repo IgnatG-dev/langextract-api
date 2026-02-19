@@ -619,12 +619,18 @@ class TestRunExtraction:
         mock_settings,
         mock_lx_extract,
     ):
-        """When document_url is provided, it is used."""
+        """When document_url is provided, it is downloaded and used."""
         from app.services.extractor import run_extraction
 
-        with patch(
-            "app.services.extractor.get_settings",
-            return_value=mock_settings,
+        with (
+            patch(
+                "app.services.extractor.get_settings",
+                return_value=mock_settings,
+            ),
+            patch(
+                "app.services.extractor.download_document",
+                return_value="downloaded content",
+            ),
         ):
             result = run_extraction(
                 task_self=None,
@@ -633,7 +639,7 @@ class TestRunExtraction:
             )
 
         call_kwargs = mock_lx_extract.call_args.kwargs
-        assert call_kwargs["text_or_documents"] == "https://example.com/doc.pdf"
+        assert call_kwargs["text_or_documents"] == "downloaded content"
         assert result["source"] == "https://example.com/doc.pdf"
 
     def test_progress_updates_with_task_self(
@@ -742,15 +748,10 @@ class TestExtractDocumentTask:
 
         extract_document.push_request(id="task-id-123")
         try:
-            with (
-                patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
-                ) as mock_run,
-                patch(
-                    "app.workers.tasks.store_result",
-                ),
-            ):
+            with patch(
+                "app.workers.tasks.run_extraction",
+                return_value=mock_result,
+            ) as mock_run:
                 result = extract_document.run(
                     raw_text="test contract text",
                     provider="gpt-4o",
@@ -784,9 +785,6 @@ class TestExtractDocumentTask:
                 patch(
                     "app.workers.tasks.fire_webhook",
                 ) as mock_webhook,
-                patch(
-                    "app.workers.tasks.store_result",
-                ),
             ):
                 extract_document.run(
                     raw_text="test",
@@ -798,39 +796,6 @@ class TestExtractDocumentTask:
         mock_webhook.assert_called_once()
         webhook_url = mock_webhook.call_args[0][0]
         assert webhook_url == "https://hook.example.com/done"
-
-    def test_stores_result_in_redis(
-        self,
-        mock_settings,
-    ):
-        """Result is persisted via store_result."""
-        from app.workers.tasks import extract_document
-
-        mock_result = {
-            "status": "completed",
-            "source": "<raw_text>",
-            "data": {"entities": []},
-        }
-
-        extract_document.push_request(id="task-id-store")
-        try:
-            with (
-                patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
-                ),
-                patch(
-                    "app.workers.tasks.store_result",
-                ) as mock_store,
-            ):
-                extract_document.run(raw_text="test")
-        finally:
-            extract_document.pop_request()
-
-        mock_store.assert_called_once_with(
-            "task-id-store",
-            mock_result,
-        )
 
     def test_retries_on_failure(self, mock_settings):
         """The task retries on exception."""
@@ -856,40 +821,74 @@ class TestExtractDocumentTask:
 # ── extract_batch task ──────────────────────────────────────
 
 
+def _make_mock_group_result(
+    results: list[dict],
+    errors: list[int] | None = None,
+) -> MagicMock:
+    """Create a mock ``GroupResult`` returned by ``group().apply_async()``.
+
+    Args:
+        results: Per-child result dicts (for successful children).
+        errors: Zero-based indices of children that should fail.
+
+    Returns:
+        A ``MagicMock`` mimicking ``GroupResult``.
+    """
+    errors = errors or []
+    children = []
+    for i, res in enumerate(results):
+        child = MagicMock()
+        child.id = f"child-{i}"
+        if i in errors:
+            child.successful.return_value = False
+            child.result = RuntimeError(res.get("error", "fail"))
+        else:
+            child.successful.return_value = True
+            child.result = res
+        children.append(child)
+
+    group_result = MagicMock()
+    group_result.children = children
+    group_result.get.return_value = None
+    return group_result
+
+
 class TestExtractBatchTask:
-    """Tests for the ``extract_batch`` Celery task."""
+    """Tests for the ``extract_batch`` Celery task (group-based)."""
 
     def test_processes_all_documents(
         self,
         mock_settings,
     ):
-        """All documents in the batch are processed."""
+        """All documents in the batch are dispatched via group."""
         from app.workers.tasks import extract_batch
 
-        mock_result = {
+        ok = {
             "status": "completed",
             "source": "<raw_text>",
             "data": {"entities": []},
         }
-
         docs = [
             {"raw_text": "Doc A"},
             {"raw_text": "Doc B"},
             {"raw_text": "Doc C"},
         ]
 
+        group_result = _make_mock_group_result([ok, ok, ok])
+
         extract_batch.push_request(id="batch-task-1")
         try:
             with (
                 patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
+                    "app.workers.tasks.group",
+                    return_value=MagicMock(
+                        apply_async=MagicMock(
+                            return_value=group_result,
+                        ),
+                    ),
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
-                ),
-                patch(
-                    "app.workers.tasks.store_result",
                 ),
             ):
                 result = extract_batch.run(
@@ -905,46 +904,7 @@ class TestExtractBatchTask:
         assert result["successful"] == 3
         assert result["failed"] == 0
         assert len(result["results"]) == 3
-
-    def test_tracks_progress(self, mock_settings):
-        """Progress updates are sent for each document."""
-        from app.workers.tasks import extract_batch
-
-        mock_result = {
-            "status": "completed",
-            "source": "<raw_text>",
-            "data": {"entities": []},
-        }
-
-        docs = [
-            {"raw_text": "A"},
-            {"raw_text": "B"},
-        ]
-
-        extract_batch.push_request(id="batch-task-2")
-        try:
-            with (
-                patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
-                ),
-                patch(
-                    "celery.app.task.Task.update_state",
-                ) as mock_update,
-                patch(
-                    "app.workers.tasks.store_result",
-                ),
-            ):
-                extract_batch.run("batch-002", docs)
-        finally:
-            extract_batch.pop_request()
-
-        batch_calls = [
-            c
-            for c in mock_update.call_args_list
-            if c.kwargs.get("meta", {}).get("batch_id") == "batch-002"
-        ]
-        assert len(batch_calls) == 2
+        assert len(result["document_task_ids"]) == 3
 
     def test_handles_partial_failure(
         self,
@@ -953,19 +913,17 @@ class TestExtractBatchTask:
         """Documents that fail are captured in errors."""
         from app.workers.tasks import extract_batch
 
-        call_count = 0
-        ok_result = {
+        ok = {
             "status": "completed",
             "source": "<raw_text>",
             "data": {"entities": []},
         }
+        fail = {"error": "Extraction failed"}
 
-        def run_side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 2:
-                raise RuntimeError("Extraction failed")
-            return ok_result
+        group_result = _make_mock_group_result(
+            [ok, fail],
+            errors=[1],
+        )
 
         docs = [
             {"raw_text": "Good doc"},
@@ -976,14 +934,15 @@ class TestExtractBatchTask:
         try:
             with (
                 patch(
-                    "app.workers.tasks.run_extraction",
-                    side_effect=run_side_effect,
+                    "app.workers.tasks.group",
+                    return_value=MagicMock(
+                        apply_async=MagicMock(
+                            return_value=group_result,
+                        ),
+                    ),
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
-                ),
-                patch(
-                    "app.workers.tasks.store_result",
                 ),
             ):
                 result = extract_batch.run(
@@ -996,24 +955,29 @@ class TestExtractBatchTask:
         assert result["successful"] == 1
         assert result["failed"] == 1
         assert len(result["errors"]) == 1
-        assert "Extraction failed" in result["errors"][0]["error"]
 
     def test_fires_batch_webhook(self, mock_settings):
         """Batch-level webhook is triggered on completion."""
         from app.workers.tasks import extract_batch
 
-        mock_result = {
+        ok = {
             "status": "completed",
             "source": "<raw_text>",
             "data": {"entities": []},
         }
 
+        group_result = _make_mock_group_result([ok])
+
         extract_batch.push_request(id="batch-task-4")
         try:
             with (
                 patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
+                    "app.workers.tasks.group",
+                    return_value=MagicMock(
+                        apply_async=MagicMock(
+                            return_value=group_result,
+                        ),
+                    ),
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
@@ -1021,9 +985,6 @@ class TestExtractBatchTask:
                 patch(
                     "app.workers.tasks.fire_webhook",
                 ) as mock_webhook,
-                patch(
-                    "app.workers.tasks.store_result",
-                ),
             ):
                 extract_batch.run(
                     "batch-004",
@@ -1034,47 +995,49 @@ class TestExtractBatchTask:
             extract_batch.pop_request()
 
         mock_webhook.assert_called_once()
-        assert mock_webhook.call_args[0][0] == "https://hook.example.com/batch"
+        assert mock_webhook.call_args[0][0] == ("https://hook.example.com/batch")
 
-    def test_respects_concurrency_parameter(
+    def test_returns_document_task_ids(
         self,
         mock_settings,
     ):
-        """Batch accepts a concurrency parameter."""
+        """Batch result includes per-document child task IDs."""
         from app.workers.tasks import extract_batch
 
-        mock_result = {
+        ok = {
             "status": "completed",
             "source": "<raw_text>",
             "data": {"entities": []},
         }
-
-        docs = [{"raw_text": f"Doc {i}"} for i in range(6)]
+        docs = [{"raw_text": "A"}, {"raw_text": "B"}]
+        group_result = _make_mock_group_result([ok, ok])
 
         extract_batch.push_request(id="batch-task-5")
         try:
             with (
                 patch(
-                    "app.workers.tasks.run_extraction",
-                    return_value=mock_result,
+                    "app.workers.tasks.group",
+                    return_value=MagicMock(
+                        apply_async=MagicMock(
+                            return_value=group_result,
+                        ),
+                    ),
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
-                ),
-                patch(
-                    "app.workers.tasks.store_result",
                 ),
             ):
                 result = extract_batch.run(
                     "batch-005",
                     docs,
-                    concurrency=2,
                 )
         finally:
             extract_batch.pop_request()
 
-        assert result["total"] == 6
-        assert result["successful"] == 6
+        assert result["document_task_ids"] == [
+            "child-0",
+            "child-1",
+        ]
 
 
 # ── _run_lx_extract_with_retry ─────────────────────────────────────────

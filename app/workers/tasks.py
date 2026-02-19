@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+
+from celery import group
 
 from app.core.metrics import record_task_completed
 from app.services.extractor import run_extraction
-from app.services.webhook import fire_webhook, store_result
+from app.services.webhook import fire_webhook
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,8 @@ def extract_document(
     Returns:
         A dict containing the extraction result and metadata.
     """
+    start_s = time.monotonic()
     try:
-        start_s = time.monotonic()
         result = run_extraction(
             task_self=self,
             document_url=document_url,
@@ -69,9 +70,6 @@ def extract_document(
             extraction_config=extraction_config,
         )
         elapsed_s = time.monotonic() - start_s
-
-        # Persist under a predictable Redis key
-        store_result(self.request.id, result)
 
         # Fire webhook if requested
         if callback_url:
@@ -84,7 +82,8 @@ def extract_document(
         return result
 
     except Exception as exc:
-        record_task_completed(success=False, duration_s=0.0)
+        elapsed_s = time.monotonic() - start_s
+        record_task_completed(success=False, duration_s=elapsed_s)
         logger.exception(
             "Extraction failed for %s: %s",
             document_url or "<raw_text>",
@@ -107,118 +106,73 @@ def extract_batch(
     batch_id: str,
     documents: list[dict[str, Any]],
     callback_url: str | None = None,
-    concurrency: int = 4,
 ) -> dict[str, Any]:
-    """Process a batch of documents with bounded parallelism.
+    """Fan out per-document Celery tasks via ``group()``.
+
+    Each document is dispatched as an independent
+    ``extract_document`` task so it gets its own task ID,
+    independent retries, and result storage.
 
     Args:
         batch_id: Unique identifier for this batch.
         documents: List of extraction request dicts.
         callback_url: Optional batch-level webhook URL.
-        concurrency: Max parallel extractions (default 4).
 
     Returns:
         Aggregated batch result with per-document outcomes.
     """
     total = len(documents)
+
+    logger.info(
+        "Starting batch %s with %d documents via Celery group",
+        batch_id,
+        total,
+    )
+
+    # ── Fan-out via Celery group ────────────────────────────
+    signatures = [
+        extract_document.s(
+            document_url=doc.get("document_url"),
+            raw_text=doc.get("raw_text"),
+            provider=doc.get("provider", "gpt-4o"),
+            passes=doc.get("passes", 1),
+            extraction_config=doc.get("extraction_config", {}),
+        )
+        for doc in documents
+    ]
+
+    job = group(signatures)
+    group_result = job.apply_async()
+
+    # Store the child task IDs on the parent for the route
+    # to return immediately.
+    child_ids = [r.id for r in group_result.children]
+    self.update_state(
+        state="PROGRESS",
+        meta={
+            "batch_id": batch_id,
+            "document_task_ids": child_ids,
+            "total": total,
+        },
+    )
+
+    # ── Wait for all children to finish ─────────────────────
+    group_result.get(
+        disable_sync_subtasks=False,
+        propagate=False,
+    )
+
+    # ── Aggregate results ───────────────────────────────────
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
 
-    logger.info(
-        "Starting batch %s with %d documents (concurrency=%d)",
-        batch_id,
-        total,
-        concurrency,
-    )
-
-    def _process_doc(
-        idx: int,
-        doc: dict[str, Any],
-    ) -> tuple[int, dict[str, Any] | None, str | None]:
-        """Extract a single document.
-
-        Args:
-            idx: Zero-based document index.
-            doc: Extraction request dict.
-
-        Returns:
-            Tuple of (index, result_or_None, error_or_None).
-        """
+    for child, doc in zip(group_result.children, documents, strict=True):
         source = doc.get("document_url") or "<raw_text>"
-        try:
-            outcome = run_extraction(
-                task_self=None,
-                document_url=doc.get("document_url"),
-                raw_text=doc.get("raw_text"),
-                provider=doc.get("provider", "gpt-4o"),
-                passes=doc.get("passes", 1),
-                extraction_config=doc.get(
-                    "extraction_config",
-                    {},
-                ),
-            )
-            return idx, outcome, None
-        except Exception as exc:
-            logger.error(
-                "Batch %s — document %s failed: %s",
-                batch_id,
-                source,
-                exc,
-            )
-            return idx, None, str(exc)
-
-    # ── Parallel execution with concurrency limit ───────────
-    completed = 0
-    with ThreadPoolExecutor(
-        max_workers=min(concurrency, total),
-    ) as pool:
-        futures = {
-            pool.submit(_process_doc, i, doc): i for i, doc in enumerate(documents)
-        }
-
-        for future in as_completed(futures):
-            idx, outcome, error_msg = future.result()
-            source = documents[idx].get("document_url") or "<raw_text>"
-
-            if outcome:
-                results.append(outcome)
-            else:
-                errors.append(
-                    {"source": source, "error": error_msg},
-                )
-
-            completed += 1
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "batch_id": batch_id,
-                    "current": completed,
-                    "total": total,
-                    "successful": len(results),
-                    "failed": len(errors),
-                    "percent": int(completed / total * 100),
-                },
-            )
-
-            # Partial-success webhook (every 25 %)
-            if (
-                callback_url
-                and total >= 4
-                and completed < total
-                and completed % max(1, total // 4) == 0
-            ):
-                fire_webhook(
-                    callback_url,
-                    {
-                        "task_id": self.request.id,
-                        "status": "in_progress",
-                        "batch_id": batch_id,
-                        "current": completed,
-                        "total": total,
-                        "successful": len(results),
-                        "failed": len(errors),
-                    },
-                )
+        if child.successful():
+            results.append(child.result)
+        else:
+            err_msg = str(child.result) if child.result else "Unknown error"
+            errors.append({"source": source, "error": err_msg})
 
     batch_result: dict[str, Any] = {
         "status": "completed",
@@ -228,9 +182,8 @@ def extract_batch(
         "failed": len(errors),
         "results": results,
         "errors": errors,
+        "document_task_ids": child_ids,
     }
-
-    store_result(self.request.id, batch_result)
 
     if callback_url:
         fire_webhook(

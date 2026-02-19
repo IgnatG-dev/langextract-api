@@ -157,6 +157,34 @@ class TestExtractionRequest:
         )
         assert req.idempotency_key == "my-key-123"
 
+    def test_idempotency_key_rejects_whitespace(self):
+        """Idempotency key with spaces is rejected."""
+        with pytest.raises(ValidationError):
+            ExtractionRequest(
+                raw_text="test",
+                idempotency_key="has spaces",
+            )
+
+    def test_idempotency_key_rejects_control_chars(self):
+        """Idempotency key with control chars is rejected."""
+        with pytest.raises(ValidationError):
+            ExtractionRequest(
+                raw_text="test",
+                idempotency_key="bad\x00key",
+            )
+
+    def test_raw_text_size_cap(self):
+        """Oversized raw_text is rejected."""
+        from app.schemas.extraction import _MAX_RAW_TEXT_CHARS
+
+        with pytest.raises(
+            ValidationError,
+            match=r"(?i)raw_text exceeds",
+        ):
+            ExtractionRequest(
+                raw_text="x" * (_MAX_RAW_TEXT_CHARS + 1),
+            )
+
     def test_provider_rejects_bad_chars(self):
         """Provider with spaces or special chars is rejected."""
         with pytest.raises(ValidationError):

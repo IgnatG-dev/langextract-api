@@ -11,7 +11,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+
+# Maximum raw_text size in characters (~10 MB of text).
+_MAX_RAW_TEXT_CHARS: int = 10_000_000
 
 # ── Task state enum ─────────────────────────────────────────
 
@@ -156,13 +159,28 @@ class ExtractionRequest(BaseModel):
     idempotency_key: str | None = Field(
         default=None,
         max_length=256,
+        pattern=r"^[\x21-\x7E]+$",
         description=(
             "Optional client-supplied idempotency key. When "
             "provided, repeat submissions with the same key "
             "return the original task ID instead of creating "
-            "a new task."
+            "a new task.  Must contain only printable ASCII "
+            "characters (no whitespace or control chars)."
         ),
     )
+
+    @field_validator("raw_text")
+    @classmethod
+    def _cap_raw_text_size(
+        cls,
+        v: str | None,
+    ) -> str | None:
+        """Reject raw_text that would consume too much memory."""
+        if v is not None and len(v) > _MAX_RAW_TEXT_CHARS:
+            raise ValueError(
+                f"raw_text exceeds maximum of {_MAX_RAW_TEXT_CHARS:,} characters."
+            )
+        return v
 
     @model_validator(mode="after")
     def _require_at_least_one_input(

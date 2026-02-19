@@ -19,6 +19,7 @@ from app.core.defaults import (
     DEFAULT_EXAMPLES,
     DEFAULT_PROMPT_DESCRIPTION,
 )
+from app.services.downloader import download_document
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,11 @@ def run_extraction(
             },
         )
 
-    text_input: str = document_url if document_url else (raw_text or "")
+    if document_url:
+        logger.info("Downloading document from %s", document_url)
+        text_input: str = download_document(document_url)
+    else:
+        text_input = raw_text or ""
 
     # ── Step 2: Build prompt & examples ─────────────────────────
     prompt_description: str = extraction_config.get(

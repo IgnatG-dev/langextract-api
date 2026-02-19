@@ -1,7 +1,10 @@
 """
-In-process metrics counters.
+Redis-backed metrics counters.
 
-Provides simple thread-safe counters for task-level observability.
+Stores counters in Redis using atomic ``INCR`` / ``INCRBYFLOAT``
+so that values are consistent across FastAPI and Celery worker
+processes (and across multiple Uvicorn workers).
+
 Both the Celery worker tasks and the FastAPI health/metrics
 endpoint import from this module, avoiding circular dependencies
 between the API and worker layers.
@@ -9,18 +12,19 @@ between the API and worker layers.
 
 from __future__ import annotations
 
-import threading
+import logging
 
-# Thread lock protects counter mutations from concurrent
-# Celery worker threads and the FastAPI event loop.
-_lock = threading.Lock()
+from app.core.config import get_redis_client
 
-_metrics: dict[str, float | int] = {
-    "tasks_submitted_total": 0,
-    "tasks_succeeded_total": 0,
-    "tasks_failed_total": 0,
-    "task_duration_seconds_sum": 0.0,
-}
+logger = logging.getLogger(__name__)
+
+# Redis key prefix for all metric counters.
+_PREFIX = "metrics:"
+
+_SUBMITTED_KEY = f"{_PREFIX}tasks_submitted_total"
+_SUCCEEDED_KEY = f"{_PREFIX}tasks_succeeded_total"
+_FAILED_KEY = f"{_PREFIX}tasks_failed_total"
+_DURATION_KEY = f"{_PREFIX}task_duration_seconds_sum"
 
 
 def record_task_submitted() -> None:
@@ -29,8 +33,17 @@ def record_task_submitted() -> None:
     Called from the extraction router on every
     ``POST /extract``.
     """
-    with _lock:
-        _metrics["tasks_submitted_total"] += 1
+    try:
+        client = get_redis_client()
+        try:
+            client.incr(_SUBMITTED_KEY)
+        finally:
+            client.close()
+    except Exception:
+        logger.warning(
+            "Failed to record task_submitted metric",
+            exc_info=True,
+        )
 
 
 def record_task_completed(
@@ -47,20 +60,54 @@ def record_task_completed(
         success: ``True`` if the task succeeded.
         duration_s: Wall-clock duration in seconds.
     """
-    with _lock:
-        if success:
-            _metrics["tasks_succeeded_total"] += 1
-        else:
-            _metrics["tasks_failed_total"] += 1
-        _metrics["task_duration_seconds_sum"] += duration_s
+    try:
+        client = get_redis_client()
+        try:
+            key = _SUCCEEDED_KEY if success else _FAILED_KEY
+            client.incr(key)
+            client.incrbyfloat(_DURATION_KEY, duration_s)
+        finally:
+            client.close()
+    except Exception:
+        logger.warning(
+            "Failed to record task_completed metric",
+            exc_info=True,
+        )
 
 
 def get_metrics() -> dict[str, float | int]:
-    """Return a snapshot of current metrics.
+    """Return a snapshot of current metrics from Redis.
 
     Returns:
-        A copy of the metrics dict (safe to read without
-        holding the lock).
+        A dict with counter names as keys.  Missing keys
+        default to ``0``.
     """
-    with _lock:
-        return dict(_metrics)
+    defaults: dict[str, float | int] = {
+        "tasks_submitted_total": 0,
+        "tasks_succeeded_total": 0,
+        "tasks_failed_total": 0,
+        "task_duration_seconds_sum": 0.0,
+    }
+    try:
+        client = get_redis_client()
+        try:
+            vals = client.mget(
+                _SUBMITTED_KEY,
+                _SUCCEEDED_KEY,
+                _FAILED_KEY,
+                _DURATION_KEY,
+            )
+        finally:
+            client.close()
+        return {
+            "tasks_submitted_total": int(vals[0] or 0),
+            "tasks_succeeded_total": int(vals[1] or 0),
+            "tasks_failed_total": int(vals[2] or 0),
+            "task_duration_seconds_sum": float(vals[3] or 0),
+        }
+    except Exception:
+        logger.warning(
+            "Failed to read metrics from Redis",
+            exc_info=True,
+        )
+        return defaults
