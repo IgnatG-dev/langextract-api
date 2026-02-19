@@ -20,6 +20,7 @@ from app.core.defaults import (
     DEFAULT_EXAMPLES,
     DEFAULT_PROMPT_DESCRIPTION,
 )
+from app.core.security import validate_url
 from app.schemas.extraction import TaskState
 from app.services.downloader import download_document
 
@@ -251,6 +252,11 @@ def run_extraction(
         )
 
     if document_url:
+        # Defence-in-depth: re-validate the URL in the worker
+        # in case a task was enqueued by something other than
+        # the API route (e.g. management command, direct Celery
+        # call).
+        validate_url(document_url, purpose="document_url")
         logger.info("Downloading document from %s", document_url)
         text_input: str = download_document(document_url)
     else:

@@ -83,6 +83,9 @@ curl -X POST http://localhost:8000/api/v1/extract \
   -d '{
     "document_url": "https://example.com/contract.pdf",
     "callback_url": "https://my-app.com/webhooks/done",
+    "callback_headers": {
+      "Authorization": "Bearer eyJhbGciOi..."
+    },
     "provider": "gpt-4o",
     "passes": 2
   }'
@@ -125,6 +128,24 @@ Pass an `idempotency_key` to prevent duplicate tasks:
 ```
 
 Repeat submissions with the same key return the original task ID.
+
+### Webhook Headers
+
+Use `callback_headers` to attach custom headers (e.g. `Authorization`) to the
+webhook POST that fires when extraction completes:
+
+```json
+{
+  "raw_text": "...",
+  "callback_url": "https://my-app.com/webhooks/done",
+  "callback_headers": {
+    "Authorization": "Bearer <token>"
+  }
+}
+```
+
+These headers are merged with the default `Content-Type` and HMAC signature
+headers.  The same field is available on batch requests.
 
 ---
 
@@ -271,7 +292,7 @@ To change the **global** defaults, edit `app/core/defaults.py`.
 
 ## Security
 
-- **SSRF protection** — private IP / localhost blocking, subdomain matching, URL length limit (2 048 chars), DNS resolution timeout (5 s)
+- **SSRF protection** — private IP / localhost blocking, subdomain matching, URL length limit (2 048 chars), DNS resolution timeout (5 s), redirect-hop re-validation
 - **Domain allow-list** — set `ALLOWED_URL_DOMAINS` to restrict accepted document URLs
 - **Webhook HMAC signing** — set `WEBHOOK_SECRET` to sign outbound webhooks (`X-Webhook-Signature` / `X-Webhook-Timestamp` headers, HMAC-SHA256)
 - **Provider validation** — model IDs are validated against a strict regex pattern

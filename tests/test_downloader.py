@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.downloader import (
     DownloadTooLargeError,
+    UnsafeRedirectError,
+    _ssrf_safe_redirect_handler,
     download_document,
 )
 
@@ -105,3 +108,53 @@ class TestDownloadDocument:
             match=r"exceeded",
         ):
             download_document("https://example.com/big.bin")
+
+
+class TestSsrfSafeRedirectHandler:
+    """Tests for the ``_ssrf_safe_redirect_handler`` hook."""
+
+    def test_allows_safe_redirect(self):
+        """Redirect to a public URL passes without error."""
+        request = MagicMock(spec=httpx.Request)
+        response = MagicMock(spec=httpx.Response)
+        next_req = MagicMock(spec=httpx.Request)
+        next_req.url = httpx.URL(
+            "https://cdn.example.com/doc.pdf",
+        )
+        response.next_request = next_req
+
+        with patch(
+            "app.services.downloader.validate_url",
+            return_value="ok",
+        ):
+            # Should not raise
+            _ssrf_safe_redirect_handler(request, response)
+
+    def test_blocks_redirect_to_private_ip(self):
+        """Redirect to a private IP raises UnsafeRedirectError."""
+        request = MagicMock(spec=httpx.Request)
+        response = MagicMock(spec=httpx.Response)
+        next_req = MagicMock(spec=httpx.Request)
+        next_req.url = httpx.URL("http://169.254.169.254/meta")
+        response.next_request = next_req
+
+        with (
+            patch(
+                "app.services.downloader.validate_url",
+                side_effect=ValueError("private IP"),
+            ),
+            pytest.raises(
+                UnsafeRedirectError,
+                match="blocked by SSRF",
+            ),
+        ):
+            _ssrf_safe_redirect_handler(request, response)
+
+    def test_no_redirect_is_noop(self):
+        """Non-redirect response (next_request is None) passes."""
+        request = MagicMock(spec=httpx.Request)
+        response = MagicMock(spec=httpx.Response)
+        response.next_request = None
+
+        # Should not raise
+        _ssrf_safe_redirect_handler(request, response)

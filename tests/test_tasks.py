@@ -668,6 +668,10 @@ class TestRunExtraction:
                 return_value=mock_settings,
             ),
             patch(
+                "app.services.extractor.validate_url",
+                return_value="ok",
+            ),
+            patch(
                 "app.services.extractor.download_document",
                 return_value="downloaded content",
             ),

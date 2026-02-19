@@ -18,6 +18,18 @@ POSTs to them.  The check enforces:
 | **DNS timeout**        | Resolution times out after 5 s to prevent slow DNS attacks. |
 | **Domain allowlist**   | When `ALLOWED_URL_DOMAINS` is set, only listed domains (and their sub-domains) are permitted. |
 
+### Redirect Re-validation
+
+The document downloader follows redirects (up to 5 hops) but
+re-validates **every** redirect target against the same SSRF
+rules before following it.  This prevents an attacker from
+submitting a "safe" public URL that 302-redirects to a private
+IP or cloud metadata endpoint (e.g. `169.254.169.254`).
+
+Additionally, the worker re-validates the `document_url` just
+before downloading — defence-in-depth in case a task is
+enqueued outside the API route.
+
 ### DNS Rebinding Caveat
 
 The current implementation resolves the hostname at validation time.

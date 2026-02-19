@@ -3,8 +3,10 @@ Document download service with timeout and size enforcement.
 
 Downloads documents from user-supplied URLs, respecting
 ``DOC_DOWNLOAD_TIMEOUT`` and ``DOC_DOWNLOAD_MAX_BYTES`` settings.
-The SSRF validation in ``app.core.security`` must be run before
-calling any function in this module.
+
+Each redirect hop is re-validated against the SSRF rules in
+``app.core.security`` so that a "safe" URL cannot 302-redirect
+the worker to a private IP or metadata endpoint.
 """
 
 from __future__ import annotations
@@ -14,27 +16,72 @@ import logging
 import httpx
 
 from app.core.config import get_settings
+from app.core.security import validate_url
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of redirects to follow per download request.
+_MAX_REDIRECTS: int = 5
 
 
 class DownloadTooLargeError(Exception):
     """Raised when the downloaded content exceeds the size limit."""
 
 
+class UnsafeRedirectError(Exception):
+    """Raised when a redirect target fails SSRF validation."""
+
+
+def _ssrf_safe_redirect_handler(
+    request: httpx.Request,
+    response: httpx.Response,
+) -> None:
+    """Validate each redirect target against SSRF rules.
+
+    This is used as an httpx *response* event hook.  When the
+    server returns a 3xx redirect, httpx resolves the
+    ``Location`` header *before* calling this hook on the
+    redirect response.  We intercept and validate the next
+    URL that httpx will follow.
+
+    Args:
+        request: The outgoing request that produced *response*.
+        response: The HTTP response (may be a 3xx redirect).
+
+    Raises:
+        UnsafeRedirectError: If the redirect target fails SSRF
+            validation.
+    """
+    if response.next_request is not None:
+        target = str(response.next_request.url)
+        try:
+            validate_url(target, purpose="redirect target")
+        except ValueError as exc:
+            raise UnsafeRedirectError(
+                f"Redirect to {target} blocked by SSRF check: {exc}"
+            ) from exc
+
+
 def download_document(url: str) -> str:
     """Download document text from *url* with safety limits.
 
-    Streams the response and aborts early if the body
-    exceeds ``DOC_DOWNLOAD_MAX_BYTES``.
+    Follows redirects (up to ``_MAX_REDIRECTS``), re-validating
+    every hop against the SSRF rules so that a "safe" initial URL
+    cannot 302-redirect the worker to a private IP.
+
+    Streams the response and aborts early if the body exceeds
+    ``DOC_DOWNLOAD_MAX_BYTES``.
 
     Args:
-        url: The document URL to fetch (already SSRF-validated).
+        url: The document URL to fetch (already SSRF-validated
+            at the API layer).
 
     Returns:
         The decoded document text.
 
     Raises:
+        UnsafeRedirectError: If any redirect target fails the
+            SSRF check.
         DownloadTooLargeError: If the response exceeds the
             configured max bytes.
         httpx.HTTPStatusError: On non-2xx responses.
@@ -45,7 +92,14 @@ def download_document(url: str) -> str:
     max_bytes = settings.DOC_DOWNLOAD_MAX_BYTES
 
     with (
-        httpx.Client(timeout=timeout, follow_redirects=True) as client,
+        httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            max_redirects=_MAX_REDIRECTS,
+            event_hooks={
+                "response": [_ssrf_safe_redirect_handler],
+            },
+        ) as client,
         client.stream("GET", url) as response,
     ):
         response.raise_for_status()
