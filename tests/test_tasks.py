@@ -8,7 +8,7 @@ Tests cover:
 - ``_extract_token_usage()`` — token usage extraction
 - ``fire_webhook()`` — webhook delivery with HMAC signing
 - ``run_extraction()`` — full extraction pipeline (mocked)
-- ``extract_document`` / ``extract_batch`` Celery tasks
+- ``extract_document`` / ``finalize_batch`` Celery tasks
 """
 
 from __future__ import annotations
@@ -983,21 +983,22 @@ class TestExtractDocumentTask:
         assert mock_wh.call_args.kwargs["extra_headers"] == headers
 
 
-# ── extract_batch task ──────────────────────────────────────
+# ── finalize_batch task ─────────────────────────────────────
 
 
-def _make_mock_group_result(
+def _make_mock_children(
     results: list[dict],
     errors: list[int] | None = None,
-) -> MagicMock:
-    """Create a mock ``GroupResult`` returned by ``group().apply_async()``.
+) -> list[MagicMock]:
+    """Build a list of mock ``AsyncResult`` objects.
 
     Args:
         results: Per-child result dicts (for successful children).
         errors: Zero-based indices of children that should fail.
 
     Returns:
-        A ``MagicMock`` mimicking ``GroupResult``.
+        A list of ``MagicMock`` instances mimicking
+        ``AsyncResult``.
     """
     errors = errors or []
     children = []
@@ -1006,27 +1007,27 @@ def _make_mock_group_result(
         child.id = f"child-{i}"
         if i in errors:
             child.successful.return_value = False
-            child.result = RuntimeError(res.get("error", "fail"))
+            child.ready.return_value = True
+            child.result = RuntimeError(
+                res.get("error", "fail"),
+            )
         else:
             child.successful.return_value = True
+            child.ready.return_value = True
             child.result = res
         children.append(child)
-
-    group_result = MagicMock()
-    group_result.children = children
-    group_result.get.return_value = None
-    return group_result
+    return children
 
 
-class TestExtractBatchTask:
-    """Tests for the ``extract_batch`` Celery task (group-based)."""
+class TestFinalizeBatchTask:
+    """Tests for the ``finalize_batch`` Celery task."""
 
-    def test_processes_all_documents(
+    def test_aggregates_all_successful(
         self,
         mock_settings,
     ):
-        """All documents in the batch are dispatched via group."""
-        from app.workers.tasks import extract_batch
+        """All children succeed → full aggregated result."""
+        from app.workers.tasks import finalize_batch
 
         ok = {
             "status": "completed",
@@ -1038,30 +1039,30 @@ class TestExtractBatchTask:
             {"raw_text": "Doc B"},
             {"raw_text": "Doc C"},
         ]
+        children = _make_mock_children([ok, ok, ok])
 
-        group_result = _make_mock_group_result([ok, ok, ok])
-
-        extract_batch.push_request(id="batch-task-1")
+        finalize_batch.push_request(id="fin-task-1")
         try:
             with (
                 patch(
-                    "app.workers.tasks.group",
-                    return_value=MagicMock(
-                        apply_async=MagicMock(
-                            return_value=group_result,
-                        ),
-                    ),
+                    "app.workers.tasks.AsyncResult",
+                    side_effect=children,
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
                 ),
             ):
-                result = extract_batch.run(
-                    "batch-001",
-                    docs,
+                result = finalize_batch.run(
+                    batch_id="batch-001",
+                    child_task_ids=[
+                        "child-0",
+                        "child-1",
+                        "child-2",
+                    ],
+                    documents=docs,
                 )
         finally:
-            extract_batch.pop_request()
+            finalize_batch.pop_request()
 
         assert result["status"] == "completed"
         assert result["batch_id"] == "batch-001"
@@ -1069,14 +1070,18 @@ class TestExtractBatchTask:
         assert result["successful"] == 3
         assert result["failed"] == 0
         assert len(result["results"]) == 3
-        assert len(result["document_task_ids"]) == 3
+        assert result["document_task_ids"] == [
+            "child-0",
+            "child-1",
+            "child-2",
+        ]
 
     def test_handles_partial_failure(
         self,
         mock_settings,
     ):
-        """Documents that fail are captured in errors."""
-        from app.workers.tasks import extract_batch
+        """Failed children are captured in errors list."""
+        from app.workers.tasks import finalize_batch
 
         ok = {
             "status": "completed",
@@ -1084,8 +1089,7 @@ class TestExtractBatchTask:
             "data": {"entities": []},
         }
         fail = {"error": "Extraction failed"}
-
-        group_result = _make_mock_group_result(
+        children = _make_mock_children(
             [ok, fail],
             errors=[1],
         )
@@ -1095,27 +1099,27 @@ class TestExtractBatchTask:
             {"raw_text": "Bad doc"},
         ]
 
-        extract_batch.push_request(id="batch-task-3")
+        finalize_batch.push_request(id="fin-task-2")
         try:
             with (
                 patch(
-                    "app.workers.tasks.group",
-                    return_value=MagicMock(
-                        apply_async=MagicMock(
-                            return_value=group_result,
-                        ),
-                    ),
+                    "app.workers.tasks.AsyncResult",
+                    side_effect=children,
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
                 ),
             ):
-                result = extract_batch.run(
-                    "batch-003",
-                    docs,
+                result = finalize_batch.run(
+                    batch_id="batch-003",
+                    child_task_ids=[
+                        "child-0",
+                        "child-1",
+                    ],
+                    documents=docs,
                 )
         finally:
-            extract_batch.pop_request()
+            finalize_batch.pop_request()
 
         assert result["successful"] == 1
         assert result["failed"] == 1
@@ -1123,26 +1127,21 @@ class TestExtractBatchTask:
 
     def test_fires_batch_webhook(self, mock_settings):
         """Batch-level webhook is triggered on completion."""
-        from app.workers.tasks import extract_batch
+        from app.workers.tasks import finalize_batch
 
         ok = {
             "status": "completed",
             "source": "<raw_text>",
             "data": {"entities": []},
         }
+        children = _make_mock_children([ok])
 
-        group_result = _make_mock_group_result([ok])
-
-        extract_batch.push_request(id="batch-task-4")
+        finalize_batch.push_request(id="fin-task-3")
         try:
             with (
                 patch(
-                    "app.workers.tasks.group",
-                    return_value=MagicMock(
-                        apply_async=MagicMock(
-                            return_value=group_result,
-                        ),
-                    ),
+                    "app.workers.tasks.AsyncResult",
+                    side_effect=children,
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
@@ -1151,13 +1150,14 @@ class TestExtractBatchTask:
                     "app.workers.tasks.fire_webhook",
                 ) as mock_webhook,
             ):
-                extract_batch.run(
-                    "batch-004",
-                    [{"raw_text": "Doc"}],
+                finalize_batch.run(
+                    batch_id="batch-004",
+                    child_task_ids=["child-0"],
+                    documents=[{"raw_text": "Doc"}],
                     callback_url=("https://hook.example.com/batch"),
                 )
         finally:
-            extract_batch.pop_request()
+            finalize_batch.pop_request()
 
         mock_webhook.assert_called_once()
         assert mock_webhook.call_args[0][0] == ("https://hook.example.com/batch")
@@ -1167,7 +1167,7 @@ class TestExtractBatchTask:
         mock_settings,
     ):
         """Batch result includes per-document child task IDs."""
-        from app.workers.tasks import extract_batch
+        from app.workers.tasks import finalize_batch
 
         ok = {
             "status": "completed",
@@ -1175,34 +1175,70 @@ class TestExtractBatchTask:
             "data": {"entities": []},
         }
         docs = [{"raw_text": "A"}, {"raw_text": "B"}]
-        group_result = _make_mock_group_result([ok, ok])
+        children = _make_mock_children([ok, ok])
 
-        extract_batch.push_request(id="batch-task-5")
+        finalize_batch.push_request(id="fin-task-4")
         try:
             with (
                 patch(
-                    "app.workers.tasks.group",
-                    return_value=MagicMock(
-                        apply_async=MagicMock(
-                            return_value=group_result,
-                        ),
-                    ),
+                    "app.workers.tasks.AsyncResult",
+                    side_effect=children,
                 ),
                 patch(
                     "celery.app.task.Task.update_state",
                 ),
             ):
-                result = extract_batch.run(
-                    "batch-005",
-                    docs,
+                result = finalize_batch.run(
+                    batch_id="batch-005",
+                    child_task_ids=[
+                        "child-0",
+                        "child-1",
+                    ],
+                    documents=docs,
                 )
         finally:
-            extract_batch.pop_request()
+            finalize_batch.pop_request()
 
         assert result["document_task_ids"] == [
             "child-0",
             "child-1",
         ]
+
+    def test_retries_when_children_pending(
+        self,
+        mock_settings,
+    ):
+        """Task retries itself when children are not ready."""
+        from celery.exceptions import Retry
+
+        from app.workers.tasks import finalize_batch
+
+        pending = MagicMock()
+        pending.id = "child-0"
+        pending.ready.return_value = False
+
+        finalize_batch.push_request(
+            id="fin-task-5",
+            retries=0,
+        )
+        try:
+            with (
+                patch(
+                    "app.workers.tasks.AsyncResult",
+                    return_value=pending,
+                ),
+                patch(
+                    "celery.app.task.Task.update_state",
+                ),
+                pytest.raises(Retry),
+            ):
+                finalize_batch.run(
+                    batch_id="batch-006",
+                    child_task_ids=["child-0"],
+                    documents=[{"raw_text": "A"}],
+                )
+        finally:
+            finalize_batch.pop_request()
 
 
 # ── _run_lx_extract_with_retry ─────────────────────────────────────────

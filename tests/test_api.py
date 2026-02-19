@@ -163,20 +163,35 @@ async def test_provider_validation_rejects_bad_input():
 @pytest.mark.asyncio
 async def test_submit_batch_extraction():
     """Test submitting a batch extraction task."""
+    # Mock the group dispatch — returns a GroupResult with
+    # two children whose IDs are known.
+    mock_child_0 = MagicMock()
+    mock_child_0.id = "child-0"
+    mock_child_1 = MagicMock()
+    mock_child_1.id = "child-1"
+    mock_group_result = MagicMock()
+    mock_group_result.children = [mock_child_0, mock_child_1]
+
+    mock_group_instance = MagicMock()
+    mock_group_instance.apply_async.return_value = mock_group_result
+
+    mock_finalize_result = MagicMock()
+    mock_finalize_result.id = "batch-task-id-789"
+
     with (
         patch(
-            "app.api.routes.extraction.extract_batch",
-        ) as mock_task,
+            "app.api.routes.extraction.group",
+            return_value=mock_group_instance,
+        ),
+        patch(
+            "app.api.routes.extraction.finalize_batch",
+        ) as mock_finalize,
         patch(
             "app.api.routes.extraction.validate_url",
             return_value="ok",
         ),
     ):
-        mock_result = MagicMock()
-        mock_result.id = "batch-task-id-789"
-        mock_task.delay.return_value = mock_result
-        # Mock the AsyncResult lookup for child IDs
-        mock_task.app = MagicMock()
+        mock_finalize.apply_async.return_value = mock_finalize_result
 
         transport = ASGITransport(app=app)
         async with AsyncClient(
@@ -200,17 +215,21 @@ async def test_submit_batch_extraction():
                 },
             )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["batch_task_id"] == "batch-task-id-789"
-        assert data["status"] == "submitted"
-        mock_task.delay.assert_called_once()
-        call_kwargs = mock_task.delay.call_args.kwargs
-        assert call_kwargs["batch_id"] == "batch-001"
-        assert call_kwargs["callback_url"] == (
-            "https://nestjs.example.com/webhooks/batch"
-        )
-        assert len(call_kwargs["documents"]) == 2
+    assert response.status_code == 200
+    data = response.json()
+    assert data["batch_task_id"] == "batch-task-id-789"
+    assert data["document_task_ids"] == ["child-0", "child-1"]
+    assert data["status"] == "submitted"
+    # finalize_batch should receive the child IDs
+    call_kwargs = mock_finalize.apply_async.call_args.kwargs
+    assert call_kwargs["kwargs"]["batch_id"] == "batch-001"
+    assert call_kwargs["kwargs"]["child_task_ids"] == [
+        "child-0",
+        "child-1",
+    ]
+    assert call_kwargs["kwargs"]["callback_url"] == (
+        "https://nestjs.example.com/webhooks/batch"
+    )
 
 
 @pytest.mark.asyncio

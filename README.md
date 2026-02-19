@@ -273,7 +273,7 @@ To change the **global** defaults, edit `app/core/defaults.py`.
 
 - **SSRF protection** — private IP / localhost blocking, subdomain matching, URL length limit (2 048 chars), DNS resolution timeout (5 s)
 - **Domain allow-list** — set `ALLOWED_URL_DOMAINS` to restrict accepted document URLs
-- **Webhook HMAC signing** — set `WEBHOOK_SECRET` to sign outbound webhooks (`X-Signature` header, HMAC-SHA256)
+- **Webhook HMAC signing** — set `WEBHOOK_SECRET` to sign outbound webhooks (`X-Webhook-Signature` / `X-Webhook-Timestamp` headers, HMAC-SHA256)
 - **Provider validation** — model IDs are validated against a strict regex pattern
 
 See [docs/security.md](docs/security.md) for full details.

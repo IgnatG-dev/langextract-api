@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from celery import group
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import get_redis_client, get_settings
@@ -19,7 +20,7 @@ from app.schemas import (
     ExtractionRequest,
     TaskSubmitResponse,
 )
-from app.workers.tasks import extract_batch, extract_document
+from app.workers.tasks import extract_document, finalize_batch
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,12 @@ def submit_batch_extraction(
 ) -> BatchTaskSubmitResponse:
     """Submit a batch of documents for extraction.
 
+    Dispatches per-document tasks via a Celery ``group()`` at
+    the API level so that child task IDs are available
+    immediately.  A lightweight ``finalize_batch`` task monitors
+    the children (via non-blocking retry-based polling) and
+    aggregates results once all documents are done.
+
     Returns a batch-level task ID plus per-document task IDs so
     callers can retry or poll individual documents independently.
     If a batch-level ``callback_url`` is supplied the aggregated
@@ -175,26 +182,33 @@ def submit_batch_extraction(
                 k: v for k, v in cfg.items() if v is not None
             }
 
-    task = extract_batch.delay(
-        batch_id=request.batch_id,
-        documents=documents,
-        callback_url=(str(request.callback_url) if request.callback_url else None),
-        callback_headers=request.callback_headers,
+    # ── Fan-out: dispatch group directly to get child IDs ───
+    signatures = [
+        extract_document.s(
+            document_url=doc_dict.get("document_url"),
+            raw_text=doc_dict.get("raw_text"),
+            provider=doc_dict.get("provider", "gpt-4o"),
+            passes=doc_dict.get("passes", 1),
+            extraction_config=doc_dict.get("extraction_config", {}),
+        )
+        for doc_dict in documents
+    ]
+    group_result = group(signatures).apply_async()
+    child_ids = [r.id for r in group_result.children]
+
+    # ── Aggregation: non-blocking finalize task ─────────────
+    task = finalize_batch.apply_async(
+        kwargs={
+            "batch_id": request.batch_id,
+            "child_task_ids": child_ids,
+            "documents": documents,
+            "callback_url": (
+                str(request.callback_url) if request.callback_url else None
+            ),
+            "callback_headers": request.callback_headers,
+        },
+        countdown=2,
     )
-
-    # Retrieve the per-document child task IDs that the
-    # batch task will create.  The IDs are predictable because
-    # `group().apply_async()` allocates them before returning.
-    child_ids: list[str] = []
-    try:
-        from celery.result import AsyncResult
-
-        parent = AsyncResult(task.id, app=extract_batch.app)
-        # children are set once the group is dispatched
-        if parent.children:
-            child_ids = [c.id for c in parent.children]
-    except Exception:
-        pass
 
     record_task_submitted()
 

@@ -18,8 +18,8 @@ import logging
 import time
 from typing import Any
 
-from celery import group
 from celery.exceptions import Retry
+from celery.result import AsyncResult
 
 from app.core.config import get_redis_client, get_settings
 from app.core.constants import (
@@ -151,84 +151,86 @@ def extract_document(
         raise self.retry(exc=exc) from exc
 
 
-# ── Batch extraction ────────────────────────────────────────────────────────
+# ── Batch finalisation (non-blocking) ───────────────────────────────────
+
+# Maximum time (in seconds) to wait for child tasks before
+# giving up and reporting a partial result.  With a 5-second
+# retry countdown this allows for roughly 1 hour of waiting.
+_FINALIZE_MAX_RETRIES: int = 720
+_FINALIZE_COUNTDOWN_S: int = 5
 
 
 @celery_app.task(
     bind=True,
-    name="tasks.extract_batch",
-    max_retries=1,
-    default_retry_delay=120,
+    name="tasks.finalize_batch",
+    max_retries=_FINALIZE_MAX_RETRIES,
+    default_retry_delay=_FINALIZE_COUNTDOWN_S,
 )
-def extract_batch(
+def finalize_batch(
     self,
+    *,
     batch_id: str,
+    child_task_ids: list[str],
     documents: list[dict[str, Any]],
     callback_url: str | None = None,
     callback_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Fan out per-document Celery tasks via ``group()``.
+    """Aggregate results from child extraction tasks.
 
-    Each document is dispatched as an independent
-    ``extract_document`` task so it gets its own task ID,
-    independent retries, and result storage.
+    The batch API route dispatches per-document tasks via a
+    Celery ``group()`` and then schedules this task.
+    ``finalize_batch`` polls the children using Celery's retry
+    mechanism so that no worker slot is blocked while children
+    are still running.
+
+    Once all children are ready (or the retry budget is
+    exhausted), it aggregates success/failure results, fires
+    an optional webhook, and persists the batch result in Redis.
 
     Args:
         batch_id: Unique identifier for this batch.
-        documents: List of extraction request dicts.
+        child_task_ids: Celery task IDs of the per-document
+            extraction tasks.
+        documents: The original document dicts (for error
+            source attribution).
         callback_url: Optional batch-level webhook URL.
-        callback_headers: Optional extra HTTP headers to send
-            with the webhook request (e.g. Authorization).
+        callback_headers: Optional extra HTTP headers for the
+            webhook request.
 
     Returns:
         Aggregated batch result with per-document outcomes.
     """
-    total = len(documents)
+    total = len(child_task_ids)
+    children = [AsyncResult(tid, app=celery_app) for tid in child_task_ids]
 
-    logger.info(
-        "Starting batch %s with %d documents via Celery group",
-        batch_id,
-        total,
-    )
+    # ── Poll: re-schedule if children are still running ─────
+    if not all(c.ready() for c in children):
+        completed = sum(1 for c in children if c.ready())
 
-    # ── Fan-out via Celery group ────────────────────────────
-    signatures = [
-        extract_document.s(
-            document_url=doc.get("document_url"),
-            raw_text=doc.get("raw_text"),
-            provider=doc.get("provider", "gpt-4o"),
-            passes=doc.get("passes", 1),
-            extraction_config=doc.get("extraction_config", {}),
+        self.update_state(
+            state=TaskState.PROGRESS,
+            meta={
+                "batch_id": batch_id,
+                "document_task_ids": child_task_ids,
+                "total": total,
+                "completed": completed,
+            },
         )
-        for doc in documents
-    ]
 
-    job = group(signatures)
-    group_result = job.apply_async()
+        if self.request.retries < self.max_retries:
+            raise self.retry(countdown=_FINALIZE_COUNTDOWN_S)
 
-    # Store the child task IDs on the parent for the route
-    # to return immediately.
-    child_ids = [r.id for r in group_result.children]
-    self.update_state(
-        state=TaskState.PROGRESS,
-        meta={
-            "batch_id": batch_id,
-            "document_task_ids": child_ids,
-            "total": total,
-        },
-    )
-
-    # ── Wait for all children to finish ─────────────────────
-    group_result.get(
-        disable_sync_subtasks=False,
-        propagate=False,
-    )
+        logger.warning(
+            "Batch %s: timed out after %d retries — finalising with partial results",
+            batch_id,
+            self.request.retries,
+        )
 
     # ── Aggregate results ───────────────────────────────────
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
 
-    for child, doc in zip(group_result.children, documents, strict=True):
+    for child, doc in zip(children, documents, strict=True):
         source = doc.get("document_url") or "<raw_text>"
         if child.successful():
             results.append(child.result)
@@ -244,7 +246,7 @@ def extract_batch(
         "failed": len(errors),
         "results": results,
         "errors": errors,
-        "document_task_ids": child_ids,
+        "document_task_ids": child_task_ids,
     }
 
     if callback_url:
