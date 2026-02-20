@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     # API Keys (populated via .env)
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    MISTRAL_API_KEY: str = ""
     LANGEXTRACT_API_KEY: str = ""
 
     # Provider / model defaults (overridable per-request)

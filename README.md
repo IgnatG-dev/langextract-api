@@ -227,7 +227,10 @@ All settings are driven by environment variables (`.env` file supported):
 | `DEFAULT_MAX_CHAR_BUFFER`  | 1000      | LangExtract character buffer                     |
 | `OPENAI_API_KEY`           | _(empty)_ | OpenAI key (for GPT models)                      |
 | `GEMINI_API_KEY`           | _(empty)_ | Google Gemini key                                |
+| `ANTHROPIC_API_KEY`        | _(empty)_ | Anthropic key (for Claude models)                |
+| `MISTRAL_API_KEY`          | _(empty)_ | Mistral AI key                                   |
 | `LANGEXTRACT_API_KEY`      | _(empty)_ | Dedicated key (falls back to `GEMINI_API_KEY`)   |
+| `OLLAMA_API_BASE`          | _(empty)_ | Ollama base URL (e.g. `http://localhost:11434`)  |
 | `EXTRACTION_CACHE_ENABLED` | true      | Enable LLM response caching via Redis            |
 | `EXTRACTION_CACHE_TTL`     | 86400     | Cache TTL in seconds (default 24 h)              |
 | `EXTRACTION_CACHE_BACKEND` | redis     | Cache backend: `redis`, `disk`, or `none`        |
@@ -253,6 +256,8 @@ All settings are driven by environment variables (`.env` file supported):
 | `BATCH_CONCURRENCY`| 4       | Max parallel batch extractions |
 
 > **Multi-provider:** every request can override the model via `"provider": "gemini-2.5-flash"`.
+> Supports cloud APIs (OpenAI, Gemini, Anthropic, Groq, Mistral, Azure) and
+> local/self-hosted models (Ollama, vLLM, llama.cpp). See [Supported Models](#supported-models).
 > OpenAI models automatically get `fence_output=True` and `use_schema_constraints=False`.
 
 ---
@@ -361,10 +366,31 @@ To change the **global** defaults, edit `app/core/defaults.py`.
 
 ### Supported Models
 
-| Provider | Models                               | Key variable     |
-|----------|--------------------------------------|------------------|
-| Google   | `gemini-2.5-pro`, `gemini-2.0-flash` | `GEMINI_API_KEY` |
-| OpenAI   | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo` | `OPENAI_API_KEY` |
+The API supports any model accessible through [LiteLLM](https://docs.litellm.ai/docs/providers), including cloud APIs and self-hosted / local inference servers.
+
+#### Cloud Providers
+
+| Provider   | Example models                            | Key variable        | `response_format` |
+|------------|-------------------------------------------|---------------------|--------------------|
+| OpenAI     | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`   | `OPENAI_API_KEY`    | Yes                |
+| Google     | `gemini-2.5-pro`, `gemini-2.0-flash`      | `GEMINI_API_KEY`    | Yes (2.0+)         |
+| Anthropic  | `claude-3.5-sonnet`, `claude-3-haiku`     | `ANTHROPIC_API_KEY` | Yes                |
+| Azure OpenAI | `azure/gpt-4o`                          | `AZURE_API_KEY`     | Yes                |
+| Groq       | `groq/llama-3.1-70b`                     | `GROQ_API_KEY`      | Yes                |
+| Mistral    | `mistral/mistral-large-latest`            | `MISTRAL_API_KEY`   | Yes                |
+
+#### Local / Self-Hosted
+
+| Provider   | Example models                            | Configuration                 | `response_format` |
+|------------|-------------------------------------------|-------------------------------|--------------------|
+| Ollama     | `ollama/llama3.1`, `ollama/qwen2.5`       | `OLLAMA_API_BASE` (default `http://localhost:11434`) | Yes (Ollama ≥ 0.5) |
+| vLLM       | `hosted_vllm/meta-llama/Llama-3.1-8B`    | `api_base` via provider kwargs | Yes                |
+| llama.cpp server | `openai/<model>` with custom `api_base` | OpenAI-compatible endpoint  | Yes                |
+
+> **Note:** Any LiteLLM-supported model can be used by passing the appropriate model ID
+> as the `provider` field in the request. LiteLLM translates `response_format` to each
+> backend's native format automatically. See the
+> [LiteLLM provider list](https://docs.litellm.ai/docs/providers) for the full catalogue.
 
 ---
 

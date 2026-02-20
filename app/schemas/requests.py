@@ -64,7 +64,10 @@ Provider = Annotated[
         max_length=128,
         pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_./-]*$",
         description=(
-            "LLM model ID (e.g. 'gpt-4o', 'gemini-2.5-flash'). "
+            "LLM model ID passed to LiteLLM. Supports cloud providers "
+            "(e.g. 'gpt-4o', 'gemini-2.5-flash', 'claude-3.5-sonnet') "
+            "and local/self-hosted models "
+            "(e.g. 'ollama/llama3.1', 'hosted_vllm/meta-llama/Llama-3.1-8B'). "
             "Must start with an alphanumeric character and "
             "contain only letters, digits, dots, underscores, "
             "slashes, and hyphens."
@@ -142,16 +145,17 @@ class ExtractionConfig(BaseModel):
         default=None,
         description=(
             "Enable LLM-level structured output (``response_format``) "
-            "for providers that support JSON Schema constraints "
-            "(OpenAI, Anthropic, Gemini 2.0+, etc.).  When ``True``, "
-            "a JSON Schema is auto-generated from the extraction "
-            "examples and passed to the LLM so its output is "
-            "guaranteed to be valid JSON matching the extraction "
-            "format — eliminating parse errors and improving "
-            "reliability.  When ``None`` (default), structured "
-            "output is enabled automatically for supported "
-            "providers.  Set to ``False`` to force prompt-only "
-            "extraction."
+            "for providers that support JSON Schema constraints. "
+            "Supported by cloud APIs (OpenAI, Anthropic, Gemini 2.0+, "
+            "Groq, Mistral) and local servers (Ollama >= 0.5, vLLM). "
+            "When ``True``, a JSON Schema is auto-generated from "
+            "the extraction examples and passed to the LLM so its "
+            "output is guaranteed to be valid JSON matching the "
+            "extraction format — eliminating parse errors and "
+            "improving reliability.  When ``None`` (default), "
+            "structured output is enabled automatically for "
+            "supported providers.  Set to ``False`` to force "
+            "prompt-only extraction."
         ),
     )
 
@@ -187,8 +191,9 @@ class ExtractionRequest(BaseModel):
     provider: Provider = Field(
         default="gpt-4o",
         description=(
-            "LLM model ID to use for extraction "
-            "(e.g. 'gpt-4o', 'gemini-2.5-flash'). "
+            "LLM model ID to use for extraction. "
+            "Cloud: 'gpt-4o', 'gemini-2.5-flash', 'claude-3.5-sonnet'. "
+            "Local: 'ollama/llama3.1', 'hosted_vllm/<model>'. "
             "Can override the DEFAULT_PROVIDER env var "
             "per-request."
         ),
