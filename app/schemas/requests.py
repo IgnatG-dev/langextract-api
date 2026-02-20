@@ -235,11 +235,18 @@ class ExtractionRequest(BaseModel):
         cls,
         v: str | None,
     ) -> str | None:
-        """Reject raw_text that would consume too much memory."""
-        if v is not None and len(v) > _MAX_RAW_TEXT_CHARS:
-            raise ValueError(
-                f"raw_text exceeds maximum of {_MAX_RAW_TEXT_CHARS:,} characters."
-            )
+        """Reject raw_text that would consume too much memory
+        or that contains null bytes (binary indicator)."""
+        if v is not None:
+            if len(v) > _MAX_RAW_TEXT_CHARS:
+                raise ValueError(
+                    f"raw_text exceeds maximum of {_MAX_RAW_TEXT_CHARS:,} characters."
+                )
+            if "\x00" in v:
+                raise ValueError(
+                    "raw_text contains null bytes — "
+                    "only valid text content is accepted."
+                )
         return v
 
     @model_validator(mode="after")

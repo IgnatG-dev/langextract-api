@@ -185,6 +185,16 @@ class TestExtractionRequest:
                 raw_text="x" * (_MAX_RAW_TEXT_CHARS + 1),
             )
 
+    def test_raw_text_rejects_null_bytes(self):
+        """raw_text containing null bytes is rejected."""
+        with pytest.raises(
+            ValidationError,
+            match=r"(?i)null bytes",
+        ):
+            ExtractionRequest(
+                raw_text="hello\x00world",
+            )
+
     def test_provider_rejects_bad_chars(self):
         """Provider with spaces or special chars is rejected."""
         with pytest.raises(ValidationError):
