@@ -364,6 +364,10 @@ def run_extraction(
             settings.DEFAULT_MAX_CHAR_BUFFER,
         ),
         "show_progress": False,
+        # Model is pre-configured; suppress the langextract
+        # UserWarning that fires when model + use_schema_constraints
+        # (which defaults to True) are passed together.
+        "use_schema_constraints": False,
     }
 
     # Optional overrides
@@ -636,6 +640,10 @@ async def async_run_extraction(
             settings.DEFAULT_MAX_CHAR_BUFFER,
         ),
         "show_progress": False,
+        # Model is pre-configured; suppress the langextract
+        # UserWarning that fires when model + use_schema_constraints
+        # (which defaults to True) are passed together.
+        "use_schema_constraints": False,
     }
 
     if "additional_context" in extraction_config:
