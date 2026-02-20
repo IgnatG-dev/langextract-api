@@ -76,6 +76,10 @@ def convert_extractions(
             "char_start": (ext.char_interval.start_pos if ext.char_interval else None),
             "char_end": (ext.char_interval.end_pos if ext.char_interval else None),
         }
+        # Include cross-pass confidence score when available
+        # (multi-pass extraction with total_passes > 1).
+        if getattr(ext, "confidence_score", None) is not None:
+            entity["confidence_score"] = ext.confidence_score
         entities.append(entity)
     return entities
 

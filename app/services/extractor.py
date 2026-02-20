@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 import langextract as lx
+from langextract.core.base_model import BaseLanguageModel
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -31,6 +32,7 @@ from app.core.defaults import (
 )
 from app.core.security import validate_url
 from app.schemas.enums import TaskState
+from app.services.consensus_model import ConsensusLanguageModel
 from app.services.converters import (
     build_examples,
     convert_extractions,
@@ -47,6 +49,79 @@ logger = logging.getLogger(__name__)
 # re-invokes the LLM, which is non-deterministic and usually
 # self-corrects on the next attempt.
 MAX_LLM_RETRIES: int = 2
+
+
+def _build_model(
+    provider: str,
+    extraction_config: dict[str, Any],
+    manager: ProviderManager,
+    examples: Any = None,
+) -> tuple[BaseLanguageModel, str]:
+    """Build a language model, optionally wrapped for consensus.
+
+    When ``extraction_config`` contains a ``consensus_providers``
+    list, a :class:`ConsensusLanguageModel` is returned that
+    dispatches to all specified providers.  Otherwise a single
+    cached model is returned.
+
+    Args:
+        provider: Primary LLM model ID.
+        extraction_config: Job-level overrides — may include
+            ``consensus_providers`` (list of model ID strings).
+        manager: The global ``ProviderManager`` singleton.
+        examples: Example data for schema generation.
+
+    Returns:
+        A ``(model, label)`` tuple where *label* is a
+        human-readable description for log messages.
+    """
+    consensus_providers: list[str] | None = extraction_config.get("consensus_providers")
+
+    if consensus_providers and len(consensus_providers) >= 2:
+        models: list[BaseLanguageModel] = []
+        for model_id in consensus_providers:
+            api_key = resolve_api_key(model_id)
+            extra: dict[str, Any] = {}
+            if is_openai_model(model_id):
+                extra["fence_output"] = True
+            models.append(
+                manager.get_or_create_model(
+                    model_id=model_id,
+                    api_key=api_key,
+                    fence_output=extra.get("fence_output"),
+                    use_schema_constraints=not is_openai_model(model_id),
+                    examples=examples,
+                )
+            )
+
+        threshold = float(extraction_config.get("consensus_threshold", 0.6))
+        consensus = ConsensusLanguageModel(
+            models=models,
+            similarity_threshold=threshold,
+        )
+        label = f"consensus({', '.join(consensus_providers)})"
+        logger.info(
+            "Built consensus model with %d providers: %s " "(threshold=%.2f)",
+            len(consensus_providers),
+            label,
+            threshold,
+        )
+        return consensus, label
+
+    # ── Single-provider path (default) ──────────────────────
+    api_key = resolve_api_key(provider)
+    extra_kwargs: dict[str, Any] = {}
+    if is_openai_model(provider):
+        extra_kwargs["fence_output"] = True
+
+    model = manager.get_or_create_model(
+        model_id=provider,
+        api_key=api_key,
+        fence_output=extra_kwargs.get("fence_output"),
+        use_schema_constraints=not is_openai_model(provider),
+        examples=examples,
+    )
+    return model, provider
 
 
 # ── LLM retry wrapper ──────────────────────────────────────
@@ -180,18 +255,10 @@ def run_extraction(
     manager = ProviderManager.instance()
     manager.ensure_cache()
 
-    # Resolve a (possibly cached) language model instance.
-    api_key = resolve_api_key(provider)
-
-    model_extra_kwargs: dict[str, Any] = {}
-    if is_openai_model(provider):
-        model_extra_kwargs["fence_output"] = True
-
-    cached_model = manager.get_or_create_model(
-        model_id=provider,
-        api_key=api_key,
-        fence_output=model_extra_kwargs.get("fence_output"),
-        use_schema_constraints=not is_openai_model(provider),
+    cached_model, model_label = _build_model(
+        provider,
+        extraction_config,
+        manager,
         examples=examples,
     )
 
@@ -224,9 +291,9 @@ def run_extraction(
 
     # ── Step 4: Run LangExtract ─────────────────────────────
     logger.info(
-        "Calling lx.extract() for %s (model_id=%s, passes=%d)",
+        "Calling lx.extract() for %s (model=%s, passes=%d)",
         source,
-        provider,
+        model_label,
         passes,
     )
 
@@ -260,7 +327,7 @@ def run_extraction(
         "data": {
             "entities": entities,
             "metadata": {
-                "provider": provider,
+                "provider": model_label,
                 "tokens_used": tokens,
                 "processing_time_ms": elapsed_ms,
             },
@@ -397,17 +464,10 @@ async def async_run_extraction(
     manager = ProviderManager.instance()
     manager.ensure_cache()
 
-    api_key = resolve_api_key(provider)
-
-    model_extra_kwargs: dict[str, Any] = {}
-    if is_openai_model(provider):
-        model_extra_kwargs["fence_output"] = True
-
-    cached_model = manager.get_or_create_model(
-        model_id=provider,
-        api_key=api_key,
-        fence_output=model_extra_kwargs.get("fence_output"),
-        use_schema_constraints=not is_openai_model(provider),
+    cached_model, model_label = _build_model(
+        provider,
+        extraction_config,
+        manager,
         examples=examples,
     )
 
@@ -439,9 +499,9 @@ async def async_run_extraction(
 
     # ── Step 4: Run LangExtract (async) ─────────────────────
     logger.info(
-        "Calling lx.async_extract() for %s (model_id=%s, passes=%d)",
+        "Calling lx.async_extract() for %s (model=%s, passes=%d)",
         source,
-        provider,
+        model_label,
         passes,
     )
 
@@ -475,7 +535,7 @@ async def async_run_extraction(
         "data": {
             "entities": entities,
             "metadata": {
-                "provider": provider,
+                "provider": model_label,
                 "tokens_used": tokens,
                 "processing_time_ms": elapsed_ms,
             },

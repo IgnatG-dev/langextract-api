@@ -56,6 +56,33 @@ class TestExtractionConfig:
         with pytest.raises(ValidationError):
             ExtractionConfig(max_workers=200)
 
+    def test_consensus_providers_round_trip(self):
+        """consensus_providers survives serialisation to flat dict."""
+        cfg = ExtractionConfig(
+            consensus_providers=["gpt-4o", "claude-3-opus"],
+            consensus_threshold=0.7,
+        )
+        flat = cfg.to_flat_dict()
+        assert flat["consensus_providers"] == ["gpt-4o", "claude-3-opus"]
+        assert flat["consensus_threshold"] == 0.7
+
+    def test_consensus_providers_default_none(self):
+        """consensus_providers defaults to None and is excluded from flat dict."""
+        cfg = ExtractionConfig()
+        assert cfg.consensus_providers is None
+        assert cfg.consensus_threshold is None
+        assert "consensus_providers" not in cfg.to_flat_dict()
+
+    def test_consensus_providers_min_length(self):
+        """consensus_providers requires at least 2 entries."""
+        with pytest.raises(ValidationError):
+            ExtractionConfig(consensus_providers=["gpt-4o"])
+
+    def test_consensus_threshold_range(self):
+        """consensus_threshold must be between 0.0 and 1.0."""
+        with pytest.raises(ValidationError):
+            ExtractionConfig(consensus_threshold=1.5)
+
 
 # ── ExtractionRequest ──────────────────────────────────────
 

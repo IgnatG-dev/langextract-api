@@ -94,3 +94,71 @@ curl -X POST http://localhost:8000/api/v1/extract \
     }
   }'
 ```
+
+## Multi-Pass with Confidence Scoring
+
+Run multiple extraction passes to get a `confidence_score` (0.0–1.0) on every entity.  Higher values mean the entity was found consistently across passes.
+Early stopping kicks in automatically when consecutive passes yield identical results, so extra passes cost nothing when the model is already stable.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "AGREEMENT between Acme Corp and Beta LLC dated Jan 1 2025 for $50,000.",
+    "passes": 3,
+    "provider": "gpt-4o"
+  }'
+```
+
+Entities in the response will include:
+
+```json
+{
+  "extraction_class": "party",
+  "extraction_text": "Acme Corp",
+  "attributes": {},
+  "char_start": 18,
+  "char_end": 27,
+  "confidence_score": 1.0
+}
+```
+
+> **Tip:** A `confidence_score` of `0.33` (1 out of 3 passes) may indicate a hallucinated entity.  Use this field to filter low-confidence results client-side.
+
+## Consensus Mode (Cross-Provider Agreement)
+
+Consensus mode sends the same extraction to **multiple LLM providers** and keeps
+only the entities they agree on.  This drastically reduces hallucinations and
+improves determinism compared to single-provider extraction.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "AGREEMENT between Acme Corp and Beta LLC dated Jan 1 2025 for $50,000.",
+    "extraction_config": {
+      "consensus_providers": ["gpt-4o", "gemini-2.5-pro"],
+      "consensus_threshold": 0.7
+    }
+  }'
+```
+
+The response `metadata.provider` will read `"consensus(gpt-4o, gemini-2.5-pro)"`.
+
+### Combining Consensus with Multi-Pass
+
+For maximum accuracy, combine both features — each consensus provider runs multiple passes, entities get cross-pass confidence scores, **and** only provider-agreed entities are returned:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "...",
+    "passes": 2,
+    "extraction_config": {
+      "consensus_providers": ["gpt-4o", "gemini-2.5-pro"],
+      "consensus_threshold": 0.6,
+      "temperature": 0.3
+    }
+  }'
+```

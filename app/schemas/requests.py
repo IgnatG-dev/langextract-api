@@ -120,6 +120,24 @@ class ExtractionConfig(BaseModel):
         ge=1000,
         description="Context window size in characters.",
     )
+    consensus_providers: list[str] | None = Field(
+        default=None,
+        min_length=2,
+        description=(
+            "Two or more LLM model IDs to use for consensus extraction. "
+            "When set, the response with the highest cross-model agreement "
+            "is kept. Costs N× API calls."
+        ),
+    )
+    consensus_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum Jaccard similarity for two outputs to be considered "
+            "in agreement (default 0.6)."
+        ),
+    )
 
     def to_flat_dict(self) -> dict[str, Any]:
         """Return a dict with only non-None values.

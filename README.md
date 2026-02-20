@@ -162,14 +162,16 @@ headers.  The same field is available on batch requests.
         "extraction_text": "Acme Corporation",
         "attributes": { "role": "Seller", "jurisdiction": "Delaware" },
         "char_start": 52,
-        "char_end": 68
+        "char_end": 68,
+        "confidence_score": 1.0
       },
       {
         "extraction_class": "monetary_amount",
         "extraction_text": "$2,500,000",
         "attributes": { "type": "purchase_price" },
         "char_start": 180,
-        "char_end": 190
+        "char_end": 190,
+        "confidence_score": 0.67
       }
     ],
     "metadata": {
@@ -182,6 +184,11 @@ headers.  The same field is available on batch requests.
 ```
 
 > `tokens_used` is `null` when the provider does not report usage.
+>
+> `confidence_score` is present when `passes > 1`. It indicates how
+> consistently the entity was found across passes (1.0 = every pass,
+> 0.5 = half the passes). When consensus mode is active the `provider`
+> field reads `"consensus(gpt-4o, claude-3-opus)"` etc.
 
 ---
 
@@ -248,6 +255,49 @@ All settings are driven by environment variables (`.env` file supported):
 
 ---
 
+## Multi-Pass, Early Stopping & Consensus Mode
+
+### Multi-Pass with Confidence Scoring
+
+Set `passes > 1` to run multiple extraction passes over the same document.
+Results are merged and each entity receives a **`confidence_score`** (0.0–1.0)
+indicating the fraction of passes that found it. Entities appearing in every
+pass score 1.0; those found in only one pass score `1/passes`.
+
+**Early stopping** is automatic — if two consecutive passes produce identical
+merged results the pipeline stops early, saving LLM calls without sacrificing
+accuracy.
+
+### Consensus Mode
+
+Consensus mode runs the same extraction through **multiple LLM providers** and
+keeps only the entities they agree on (Jaccard word-level similarity). This
+greatly reduces hallucinations and improves determinism.
+
+Enable it by setting `consensus_providers` in `extraction_config`:
+
+```json
+{
+  "raw_text": "AGREEMENT between Acme Corp and Beta LLC ...",
+  "passes": 2,
+  "extraction_config": {
+    "consensus_providers": ["gpt-4o", "gemini-2.5-pro"],
+    "consensus_threshold": 0.7
+  }
+}
+```
+
+- **`consensus_providers`** — list of ≥ 2 model IDs. Each provider runs the
+  full extraction independently; the results are then merged by agreement.
+- **`consensus_threshold`** — minimum Jaccard similarity (0.0–1.0, default
+  0.6) for two extractions to be considered "in agreement".
+- The response `metadata.provider` shows `"consensus(gpt-4o, gemini-2.5-pro)"`.
+- Consensus mode composes with multi-pass: set `passes: 2` **and**
+  `consensus_providers` to get both cross-pass confidence scoring and
+  cross-provider agreement filtering.
+
+---
+
 ## Customising Extraction
 
 The default prompt extracts contract entities (parties, dates, monetary amounts, terms).
@@ -275,15 +325,17 @@ Override per-request via `extraction_config`:
 }
 ```
 
-| `extraction_config` key | Type         | Description                       |
-|-------------------------|--------------|-----------------------------------|
-| `prompt_description`    | `string`     | Custom extraction prompt          |
-| `examples`              | `list[dict]` | Few-shot examples                 |
-| `max_workers`           | `int`        | Parallel worker count             |
-| `max_char_buffer`       | `int`        | Character buffer size             |
-| `additional_context`    | `string`     | Extra context for the LLM        |
-| `temperature`           | `float`      | LLM temperature (0.0–2.0)        |
-| `context_window_chars`  | `int`        | Context window size in characters |
+| `extraction_config` key  | Type         | Description                                                            |
+|--------------------------|--------------|------------------------------------------------------------------------|
+| `prompt_description`     | `string`     | Custom extraction prompt                                               |
+| `examples`               | `list[dict]` | Few-shot examples                                                      |
+| `max_workers`            | `int`        | Parallel worker count                                                  |
+| `max_char_buffer`        | `int`        | Character buffer size                                                  |
+| `additional_context`     | `string`     | Extra context for the LLM                                              |
+| `temperature`            | `float`      | LLM temperature (0.0–2.0)                                             |
+| `context_window_chars`   | `int`        | Context window size in characters                                      |
+| `consensus_providers`    | `list[str]`  | ≥ 2 model IDs for consensus mode (e.g. `["gpt-4o", "gemini-2.5-pro"]`)  |
+| `consensus_threshold`    | `float`      | Similarity threshold for consensus agreement (0.0–1.0, default 0.6)   |
 
 To change the **global** defaults, edit `app/core/defaults.py`.
 
@@ -322,9 +374,11 @@ langextract-api/
 │   │   ├── redis.py               # Redis connection pool helper
 │   │   └── security.py            # SSRF protection, URL validation
 │   ├── services/
+│   │   ├── consensus_model.py     # Cross-provider consensus wrapper
 │   │   ├── converters.py          # Input normalisation helpers
 │   │   ├── downloader.py          # URL fetch with SSRF / content guards
 │   │   ├── extractor.py           # LangExtract extraction business logic
+│   │   ├── provider_manager.py    # Singleton model cache & LiteLLM Redis setup
 │   │   ├── providers.py           # LLM provider factory
 │   │   └── webhook.py             # Result persistence & webhook delivery
 │   ├── workers/

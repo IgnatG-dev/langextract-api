@@ -30,6 +30,13 @@ class ExtractedEntity(BaseModel):
         default=None,
         description=("End character offset in the source text"),
     )
+    confidence_score: float | None = Field(
+        default=None,
+        description=(
+            "Cross-pass confidence score (0.0-1.0). Present when "
+            "the extraction uses multiple passes (``passes > 1``)."
+        ),
+    )
 
 
 class ExtractionMetadata(BaseModel):
