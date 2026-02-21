@@ -1180,32 +1180,6 @@ redis = [
 ]
 
 [[package]]
-name = "langextract"
-version = "1.1.1"
-source = { git = "https://github.com/IgnatG/langextract.git?rev=develop#6084d623c80526477c3dca5aca8374cf685b1999" }
-dependencies = [
-    { name = "absl-py" },
-    { name = "aiohttp" },
-    { name = "async-timeout" },
-    { name = "exceptiongroup" },
-    { name = "google-cloud-storage" },
-    { name = "google-genai" },
-    { name = "intervaltree" },
-    { name = "ml-collections" },
-    { name = "more-itertools" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rapidfuzz" },
-    { name = "regex" },
-    { name = "requests" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
-]
-
-[[package]]
 name = "langextract-api"
 version = "0.1.0"
 source = { virtual = "." }
@@ -1321,9 +1295,9 @@ wheels = [
 [[package]]
 name = "langextract-litellm"
 version = "0.2.0"
-source = { git = "https://github.com/IgnatG/langextract-litellm.git?rev=develop#c05bee2471564643c8b3a9b47570b7d004526d77" }
+source = { git = "https://github.com/IgnatG/langextract-litellm.git?rev=develop#1f116067de5af674e330265c056fb40fcac4615b" }
 dependencies = [
-    { name = "langextract" },
+    { name = "langextract-core" },
     { name = "litellm" },
 ]
 
