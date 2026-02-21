@@ -98,13 +98,13 @@ class Settings(BaseSettings):
     EXTRACTION_CACHE_BACKEND: str = "redis"  # redis | disk | none
 
     # ── Audit logging ───────────────────────────────────────────────
-    AUDIT_ENABLED: bool = False
+    AUDIT_ENABLED: bool = True
     AUDIT_SINK: str = "logging"  # logging | jsonfile | otel
     AUDIT_LOG_PATH: str = "audit.jsonl"
     AUDIT_SAMPLE_LENGTH: int | None = None
 
     # ── Guardrails (output validation) ──────────────────────────────
-    GUARDRAILS_ENABLED: bool = False
+    GUARDRAILS_ENABLED: bool = True
     GUARDRAILS_MAX_RETRIES: int = 3
     GUARDRAILS_MAX_CONCURRENCY: int | None = None
     GUARDRAILS_INCLUDE_OUTPUT_IN_CORRECTION: bool = True
