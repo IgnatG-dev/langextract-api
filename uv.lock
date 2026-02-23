@@ -1180,7 +1180,37 @@ redis = [
 ]
 
 [[package]]
-name = "langextract-api"
+name = "langcore"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "aiohttp" },
+    { name = "async-timeout" },
+    { name = "exceptiongroup" },
+    { name = "google-cloud-storage" },
+    { name = "google-genai" },
+    { name = "intervaltree" },
+    { name = "ml-collections" },
+    { name = "more-itertools" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "rapidfuzz" },
+    { name = "regex" },
+    { name = "requests" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/ba/ca073650617f1f371f9372e25dcd7dab28c3292f00d4a4c1987861483203/langcore-1.0.1.tar.gz", hash = "sha256:df59abb6469fb297f91da55b0dd306a01fad39b0c1bd3d80790c42190b091fa1", size = 154454, upload-time = "2026-02-23T16:40:58.743Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/3d/b15d9a5ee9bc23fad208a0c4b0d2980549199d0fb801c991bb5b7b717661/langcore-1.0.1-py3-none-any.whl", hash = "sha256:d4870831de34ae121ace9b9d0c9e02365cb866613f4f50e665497bfc97d055bd", size = 136784, upload-time = "2026-02-23T16:40:57.181Z" },
+]
+
+[[package]]
+name = "langcore-api"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
@@ -1188,10 +1218,10 @@ dependencies = [
     { name = "fastapi" },
     { name = "flower" },
     { name = "httpx" },
-    { name = "langextract-audit" },
-    { name = "langextract-core" },
-    { name = "langextract-guardrails" },
-    { name = "langextract-litellm" },
+    { name = "langcore" },
+    { name = "langcore-audit" },
+    { name = "langcore-guardrails" },
+    { name = "langcore-litellm" },
     { name = "prometheus-client" },
     { name = "prometheus-fastapi-instrumentator" },
     { name = "pydantic-settings" },
@@ -1215,10 +1245,10 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.129.0" },
     { name = "flower", specifier = ">=2.0.1" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "langextract-audit", specifier = ">=1.1.4" },
-    { name = "langextract-core", specifier = ">=1.0.0" },
-    { name = "langextract-guardrails", specifier = ">=1.0.4" },
-    { name = "langextract-litellm", git = "https://github.com/IgnatG/langextract-litellm.git?rev=develop" },
+    { name = "langcore" },
+    { name = "langcore-audit", specifier = ">=1.1.4" },
+    { name = "langcore-guardrails", specifier = ">=1.0.4" },
+    { name = "langcore-litellm" },
     { name = "prometheus-client", specifier = ">=0.22.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.2" },
     { name = "pydantic-settings", specifier = ">=2.13.0" },
@@ -1237,68 +1267,43 @@ dev = [
 ]
 
 [[package]]
-name = "langextract-audit"
-version = "1.1.4"
+name = "langcore-audit"
+version = "1.1.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "langextract-core" },
+    { name = "langcore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/cd/b14ad23aa0e80760099d01f6f662c20284d3c68af8d8dc8fc370a12c7aa7/langextract_audit-1.1.4.tar.gz", hash = "sha256:575ff3927d67c695e5e35d0481136987c2274e8622c8df5c448283208afa14fa", size = 17934, upload-time = "2026-02-21T18:12:15.984Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/5b/3f88353a898c6b21acd0721e03b1efe7c2ec3c8dcd615fdc945edbdf1d55/langcore_audit-1.1.6.tar.gz", hash = "sha256:b01df4ed4f0017ef989d269c8de8fb03476d70c8bdfa23deebe2a20fd89f9d2d", size = 17413, upload-time = "2026-02-23T16:56:12.854Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/29/5857c6f5aa586fe05ceb195e7856da0504f716feca7bb4543fb3feedfb7c/langextract_audit-1.1.4-py3-none-any.whl", hash = "sha256:d5389847db32d01ce5c5ddcbba4149cca66f1f0126144388c50310ff0e78a53a", size = 14255, upload-time = "2026-02-21T18:12:13.84Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/b7/5fdd133c99ce9efba7577c08a205bb62f40cee1a26d73d77c64911f570c6/langcore_audit-1.1.6-py3-none-any.whl", hash = "sha256:af77883bcb52e198dbf66e3822dcb003b24098f0f75a4ec599d23cb50852dd3f", size = 14118, upload-time = "2026-02-23T16:56:11.572Z" },
 ]
 
 [[package]]
-name = "langextract-core"
-version = "1.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "absl-py" },
-    { name = "aiohttp" },
-    { name = "async-timeout" },
-    { name = "exceptiongroup" },
-    { name = "google-cloud-storage" },
-    { name = "google-genai" },
-    { name = "intervaltree" },
-    { name = "ml-collections" },
-    { name = "more-itertools" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rapidfuzz" },
-    { name = "regex" },
-    { name = "requests" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/66/e2/95e60fbafc7349b1589184fc171dd682744df3ae2cae7f85328f766e3ba0/langextract_core-1.0.0.tar.gz", hash = "sha256:b7c6822ac4a0e7e3e208e8544fefcc14b0ef901f23c9d4d04b0d2a6fe0974a57", size = 126500, upload-time = "2026-02-21T14:26:33.132Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/be/8814e89de08c0a9e2ff77512ee8b80fd0be6dc90b5dc74c71630f608d9aa/langextract_core-1.0.0-py3-none-any.whl", hash = "sha256:0269c6ae939bd0f35951b53155a2b9ff9ec825682dd1af2d72aeeee8b4f00d41", size = 132331, upload-time = "2026-02-21T14:26:31.607Z" },
-]
-
-[[package]]
-name = "langextract-guardrails"
-version = "1.0.4"
+name = "langcore-guardrails"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "json-repair" },
     { name = "jsonschema" },
-    { name = "langextract-core" },
+    { name = "langcore" },
+    { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/fc/c78d3b2714ea19c52ef6e7b4212d613898311b8ec73fb9a72edaf1668449/langextract_guardrails-1.0.4.tar.gz", hash = "sha256:739fc26bd05ebf5b43170b2c67817bd711698a0a45d3281f9b00eae962aae008", size = 18875, upload-time = "2026-02-21T18:12:17.111Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/a7/e04149b3a75c64aad5e876270feb29bb0779079d765e32da5ff57583f5ee/langcore_guardrails-1.2.1.tar.gz", hash = "sha256:ecfd8664c11d708f33e28671abfb75fd952a8525adcc5729e1cbcf93881814f9", size = 30516, upload-time = "2026-02-23T16:56:07.409Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/9e/738a00ed82232cffe17319046a77ede0a3487b6a2bb9d1f28b588e9648ca/langextract_guardrails-1.0.4-py3-none-any.whl", hash = "sha256:67a99131ddcff91ef41e87e4bbd219a5b7b2d6643cbacc358000aa4667ed944c", size = 14854, upload-time = "2026-02-21T18:12:14.343Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/ae/e9f3dc7d1e8bb51fa6ff1efe7cdd98aa5ed615eaa7e273001621dad13db1/langcore_guardrails-1.2.1-py3-none-any.whl", hash = "sha256:b7b2f0a5232859ef7d2b4aa658b3c557888401a286ec4e50de663ad84251ca65", size = 23160, upload-time = "2026-02-23T16:56:05.913Z" },
 ]
 
 [[package]]
-name = "langextract-litellm"
+name = "langcore-litellm"
 version = "0.2.0"
-source = { git = "https://github.com/IgnatG/langextract-litellm.git?rev=develop#1f116067de5af674e330265c056fb40fcac4615b" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "langextract-core" },
+    { name = "langcore" },
     { name = "litellm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1e/bf/e83b8cc3dbbb5fd8f330ac2057109f4f1dbd0b252453d5ef56b18a152eae/langcore_litellm-0.2.0.tar.gz", hash = "sha256:854205fb62b7d763138a8033d19b820d79541628179956e8ab03c220ac19d35c", size = 20067, upload-time = "2026-02-23T16:45:30.148Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/cc/3b2430d4e0f0376cd6131cfccc409f539a81be293f9c31ae31e7fb1e1fbd/langcore_litellm-0.2.0-py3-none-any.whl", hash = "sha256:d850fbb2a9f3c02b401a63484ec92aaa2797fa8b5db914be48beaa3d41593e64", size = 13663, upload-time = "2026-02-23T16:45:28.552Z" },
 ]
 
 [[package]]
