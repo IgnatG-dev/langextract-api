@@ -206,3 +206,229 @@ curl -X POST http://localhost:8000/api/v1/extract \
 >   LLM returns raw JSON, not fenced code blocks).
 > - Works with any LiteLLM-supported provider that supports
 >   `response_format` (OpenAI, Azure, Gemini, Anthropic, etc.).
+
+## Guardrails: JSON Schema Validation
+
+Validate LLM output against a strict JSON Schema.  Invalid output triggers
+automatic retry with a corrective prompt:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "AGREEMENT between Acme Corp and Beta LLC dated Jan 1 2025 for $50,000.",
+    "extraction_config": {
+      "guardrails": {
+        "json_schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "extraction_class": {"type": "string", "enum": ["party", "date", "amount"]},
+              "extraction_text": {"type": "string"},
+              "attributes": {"type": "object"}
+            },
+            "required": ["extraction_class", "extraction_text"]
+          }
+        },
+        "max_retries": 5
+      }
+    }
+  }'
+```
+
+## Guardrails: Confidence Threshold Filtering
+
+Automatically reject extractions below a confidence score.  Pair with
+multi-pass extraction for best results:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "...",
+    "passes": 3,
+    "extraction_config": {
+      "guardrails": {
+        "confidence_threshold": 0.7,
+        "confidence_score_key": "confidence_score",
+        "on_fail": "filter"
+      }
+    }
+  }'
+```
+
+Entities with `confidence_score < 0.7` will be silently removed from
+the response.
+
+## Guardrails: Multiple Validators
+
+Combine several validators in one request.  They run in sequence — all
+must pass for the output to be accepted:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "...",
+    "passes": 3,
+    "extraction_config": {
+      "guardrails": {
+        "json_schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "extraction_class": {"type": "string"},
+              "extraction_text": {"type": "string"}
+            },
+            "required": ["extraction_class", "extraction_text"]
+          }
+        },
+        "required_fields": ["extraction_class", "extraction_text"],
+        "confidence_threshold": 0.6,
+        "on_fail": "reask",
+        "max_retries": 3
+      }
+    }
+  }'
+```
+
+## DSPy: Optimize Prompts, Then Extract
+
+Use DSPy to improve your extraction prompt, then feed the optimized
+config back into the extraction endpoint:
+
+```bash
+# Step 1: Optimize
+curl -s -X POST http://localhost:8000/api/v1/dspy/optimize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt_description": "Extract all parties and monetary amounts from legal agreements.",
+    "examples": [
+      {
+        "text": "Agreement between X Corp and Y Inc for $100,000.",
+        "extractions": [
+          {"extraction_class": "party", "extraction_text": "X Corp"},
+          {"extraction_class": "party", "extraction_text": "Y Inc"},
+          {"extraction_class": "amount", "extraction_text": "$100,000"}
+        ]
+      }
+    ],
+    "train_texts": [
+      "Contract between Alpha LLC and Beta Corp for $50,000.",
+      "MOU between Gamma Inc and Delta Partners for $200,000."
+    ],
+    "expected_results": [
+      [
+        {"extraction_class": "party", "extraction_text": "Alpha LLC"},
+        {"extraction_class": "party", "extraction_text": "Beta Corp"},
+        {"extraction_class": "amount", "extraction_text": "$50,000"}
+      ],
+      [
+        {"extraction_class": "party", "extraction_text": "Gamma Inc"},
+        {"extraction_class": "party", "extraction_text": "Delta Partners"},
+        {"extraction_class": "amount", "extraction_text": "$200,000"}
+      ]
+    ],
+    "optimizer": "miprov2",
+    "num_candidates": 5
+  }' -o optimized.json
+
+# Step 2: Extract using the optimized config
+PROMPT=$(jq -r .prompt_description optimized.json)
+EXAMPLES=$(jq .examples optimized.json)
+
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"raw_text\": \"New contract between Omega Ltd and Sigma Inc for \$75,000.\",
+    \"extraction_config\": {
+      \"prompt_description\": \"$PROMPT\",
+      \"examples\": $EXAMPLES
+    }
+  }"
+```
+
+> **Tip:** Run optimization once, save the result, and reuse the optimized
+> prompt across all future extraction requests.
+
+## RAG: Parse a Natural-Language Query
+
+Decompose a user query into semantic search terms and structured metadata
+filters for hybrid retrieval:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/rag/parse \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "invoices over $5000 from Acme Corp due in March 2025",
+    "schema_fields": {
+      "amount": {"type": "float", "description": "Invoice total in USD"},
+      "vendor": {"type": "str", "description": "Vendor name"},
+      "due_date": {"type": "date", "description": "Payment due date"},
+      "status": {"type": "str", "description": "Invoice status"}
+    }
+  }'
+```
+
+Response:
+
+```json
+{
+  "semantic_terms": ["invoices", "Acme Corp"],
+  "structured_filters": {
+    "amount": {"$gte": 5000},
+    "vendor": {"$eq": "Acme Corp"},
+    "due_date": {"$gte": "2025-03-01", "$lte": "2025-03-31"}
+  },
+  "confidence": 0.92,
+  "explanation": "..."
+}
+```
+
+## Audit: NDJSON File Logging
+
+Enable audit logging to produce a line-delimited JSON audit trail:
+
+```bash
+# .env
+AUDIT_ENABLED=true
+AUDIT_SINK=jsonfile
+AUDIT_LOG_PATH=/var/log/langcore/audit.jsonl
+```
+
+Then run any extraction — every LLM call is logged:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "Agreement between Acme Corp and Beta LLC...",
+    "extraction_config": {
+      "audit": {"enabled": true}
+    }
+  }'
+```
+
+Inspect the audit file:
+
+```bash
+tail -1 /var/log/langcore/audit.jsonl | jq .
+```
+
+## Disable Plugins Per Request
+
+Override global settings to disable audit/guardrails for a specific call:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "raw_text": "Quick test...",
+    "extraction_config": {
+      "audit": {"enabled": false},
+      "guardrails": {"enabled": false}
+    }
+  }'
+```

@@ -118,6 +118,43 @@ class GuardrailsConfig(BaseModel):
             "used in corrective error messages."
         ),
     )
+    confidence_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum confidence score threshold. When set, a "
+            "``ConfidenceThresholdValidator`` rejects outputs "
+            "below this threshold. Requires the LLM output to "
+            "include a confidence score field."
+        ),
+    )
+    confidence_score_key: str | None = Field(
+        default=None,
+        description=(
+            "Name of the field containing the confidence score "
+            "in the LLM output. Defaults to 'confidence_score'."
+        ),
+    )
+    required_fields: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "List of field names that must be present in the "
+            "LLM output. When set, a "
+            "``FieldCompletenessValidator`` is created using "
+            "a dynamic schema with these fields as required."
+        ),
+    )
+    on_fail: str | None = Field(
+        default=None,
+        description=(
+            "Action to take when validation fails: "
+            "'exception' (raise), 'reask' (retry with correction), "
+            "'filter' (return None), 'noop' (ignore). "
+            "Default is 'reask'."
+        ),
+    )
     max_retries: int | None = Field(
         default=None,
         ge=0,

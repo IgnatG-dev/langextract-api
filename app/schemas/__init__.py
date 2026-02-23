@@ -12,6 +12,12 @@ keeps working.
 
 from app.schemas.enums import TaskState
 from app.schemas.health import CeleryHealthResponse, HealthResponse
+from app.schemas.plugins import (
+    DSPyOptimizationRequest,
+    DSPyOptimizationResponse,
+    RAGQueryParseRequest,
+    RAGQueryParseResponse,
+)
 from app.schemas.requests import (
     AuditConfig,
     BatchExtractionRequest,
@@ -37,6 +43,8 @@ __all__ = [
     "BatchExtractionRequest",
     "BatchTaskSubmitResponse",
     "CeleryHealthResponse",
+    "DSPyOptimizationRequest",
+    "DSPyOptimizationResponse",
     "ExtractedEntity",
     "ExtractionConfig",
     "ExtractionMetadata",
@@ -45,6 +53,8 @@ __all__ = [
     "GuardrailsConfig",
     "HealthResponse",
     "Provider",
+    "RAGQueryParseRequest",
+    "RAGQueryParseResponse",
     "TaskRevokeResponse",
     "TaskState",
     "TaskStatusResponse",

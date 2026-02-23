@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import threading
 from typing import Any
 
@@ -77,12 +76,8 @@ class ProviderManager:
             return
 
         settings = get_settings()
-        cache_ttl = int(os.environ.get("EXTRACTION_CACHE_TTL", "86400"))
-        cache_enabled = os.environ.get("EXTRACTION_CACHE_ENABLED", "true").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        cache_ttl = settings.EXTRACTION_CACHE_TTL
+        cache_enabled = settings.EXTRACTION_CACHE_ENABLED
 
         if not cache_enabled:
             logger.info("LiteLLM response cache disabled via env")

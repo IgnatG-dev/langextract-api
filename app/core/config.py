@@ -111,6 +111,22 @@ class Settings(BaseSettings):
     GUARDRAILS_MAX_CORRECTION_PROMPT_LENGTH: int | None = None
     GUARDRAILS_MAX_CORRECTION_OUTPUT_LENGTH: int | None = None
 
+    # ── DSPy prompt optimization ────────────────────────────────────
+    DSPY_ENABLED: bool = False
+    DSPY_MODEL_ID: str = "gemini/gemini-2.5-flash"
+    DSPY_OPTIMIZER: str = "miprov2"  # miprov2 | gepa
+    DSPY_NUM_CANDIDATES: int = 7
+    DSPY_MAX_BOOTSTRAPPED_DEMOS: int = 3
+    DSPY_MAX_LABELED_DEMOS: int = 4
+    DSPY_NUM_THREADS: int = 4
+
+    # ── RAG query parsing ───────────────────────────────────────────
+    RAG_ENABLED: bool = False
+    RAG_MODEL_ID: str = "gpt-4o"
+    RAG_TEMPERATURE: float = 0.0
+    RAG_MAX_TOKENS: int = 1024
+    RAG_MAX_RETRIES: int = 2
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _parse_cors(cls, v: str | list[str]) -> list[str]:

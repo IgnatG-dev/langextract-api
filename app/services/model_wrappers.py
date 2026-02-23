@@ -27,10 +27,15 @@ from langcore_audit import (
     LoggingSink,
 )
 from langcore_guardrails import (
+    ConfidenceThresholdValidator,
+    FieldCompletenessValidator,
     GuardrailLanguageModel,
     GuardrailValidator,
     JsonSchemaValidator,
+    OnFailAction,
     RegexValidator,
+    ValidatorChain,
+    ValidatorEntry,
 )
 
 from app.core.config import Settings, get_settings
@@ -87,10 +92,19 @@ def _build_validators(
 ) -> list[GuardrailValidator]:
     """Build guardrail validators from per-request config.
 
-    Supports ``json_schema`` and ``regex_pattern`` keys.  When
-    neither is provided, a permissive ``JsonSchemaValidator``
-    (syntax-only) is returned so that at minimum the LLM output
-    is valid JSON.
+    Supports the following validator types based on config keys:
+    - ``json_schema``: ``JsonSchemaValidator`` for JSON Schema
+      validation.
+    - ``regex_pattern``: ``RegexValidator`` for regex matching.
+    - ``confidence_threshold``: ``ConfidenceThresholdValidator``
+      for minimum confidence scores.
+    - ``required_fields``: ``FieldCompletenessValidator`` for
+      mandatory field presence checks (builds a dynamic Pydantic
+      schema).
+
+    When no explicit validators are configured, a permissive
+    ``JsonSchemaValidator`` (syntax-only) is returned so that
+    at minimum the LLM output is valid JSON.
 
     Args:
         guardrails_config: Guardrails configuration dict from
@@ -101,6 +115,21 @@ def _build_validators(
     """
     validators: list[GuardrailValidator] = []
 
+    # Resolve on_fail action from config (used per-validator)
+    on_fail_str: str | None = guardrails_config.get("on_fail")
+    if on_fail_str is not None:
+        try:
+            on_fail = OnFailAction(on_fail_str)
+        except ValueError:
+            logger.warning(
+                "Unknown on_fail action '%s', defaulting to 'reask'",
+                on_fail_str,
+            )
+            on_fail = OnFailAction.REASK
+    else:
+        on_fail = OnFailAction.REASK
+
+    # ── JSON Schema validator ───────────────────────────────
     json_schema: dict[str, Any] | None = guardrails_config.get(
         "json_schema",
     )
@@ -110,6 +139,7 @@ def _build_validators(
             JsonSchemaValidator(schema=json_schema, strict=strict),
         )
 
+    # ── Regex validator ─────────────────────────────────────
     regex_pattern: str | None = guardrails_config.get("regex_pattern")
     if regex_pattern is not None:
         description = guardrails_config.get(
@@ -120,9 +150,59 @@ def _build_validators(
             RegexValidator(pattern=regex_pattern, description=description),
         )
 
+    # ── Confidence threshold validator ──────────────────────
+    confidence_threshold: float | None = guardrails_config.get(
+        "confidence_threshold",
+    )
+    if confidence_threshold is not None:
+        score_key = guardrails_config.get(
+            "confidence_score_key",
+            "confidence_score",
+        )
+        validators.append(
+            ConfidenceThresholdValidator(
+                min_confidence=confidence_threshold,
+                score_key=score_key,
+                on_fail=OnFailAction.FILTER,
+            ),
+        )
+
+    # ── Field completeness validator ────────────────────────
+    required_fields: list[str] | None = guardrails_config.get(
+        "required_fields",
+    )
+    if required_fields:
+        # Build a dynamic Pydantic model with the required fields
+        # so FieldCompletenessValidator can check for their
+        # presence in the LLM output.
+        from pydantic import BaseModel as _BaseModel, create_model
+
+        field_definitions = {name: (str, ...) for name in required_fields}
+        dynamic_schema = create_model(
+            "DynamicFieldSchema",
+            **field_definitions,
+        )
+        validators.append(
+            FieldCompletenessValidator(
+                schema=dynamic_schema,
+                on_fail=on_fail,
+            ),
+        )
+
     # If no explicit validators, use syntax-only JSON check
     if not validators:
         validators.append(JsonSchemaValidator(schema=None, strict=False))
+
+    # ── Wrap in ValidatorChain when multiple validators ─────
+    if len(validators) > 1:
+        entries = [ValidatorEntry(validator=v, on_fail=on_fail) for v in validators]
+        chain = ValidatorChain(entries=entries)
+        logger.info(
+            "Built ValidatorChain with %d validators (on_fail=%s)",
+            len(validators),
+            on_fail.value,
+        )
+        return [chain]
 
     return validators
 
