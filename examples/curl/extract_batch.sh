@@ -13,16 +13,18 @@ resp=$(curl -s -X POST "${API_BASE}/extract/batch" \
     "batch_id": "demo-batch-001",
     "documents": [
       {
-        "raw_text": "CONTRACT 1 — Acme Corp agrees to supply 500 units to Beta LLC at $25 each. Total: $12,500. Effective date: March 1, 2025."
+        "raw_text": "CONTRACT 1 - Acme Corp agrees to supply 500 units to Beta LLC at $25 each. Total: $12,500. Effective date: March 1, 2025.",
+        "provider": "gpt-4o"
       },
       {
-        "raw_text": "CONTRACT 2 — Charlie Enterprises leases warehouse space from Delta Holdings at $3,200/month for 24 months."
+        "raw_text": "CONTRACT 2 - Charlie Enterprises leases warehouse space from Delta Holdings at $3,200/month for 24 months.",
+        "provider": "gpt-4o"
       },
       {
-        "raw_text": "CONTRACT 3 — Echo Inc purchases software licences from Foxtrot SaaS Ltd for $9,000/year. Auto-renews annually."
+        "raw_text": "CONTRACT 3 - Echo Inc purchases software licences from Foxtrot SaaS Ltd for $9,000/year. Auto-renews annually.",
+        "provider": "gpt-4o"
       }
-    ],
-    "provider": "gpt-4o"
+    ]
   }')
 
 echo "$resp" | python -m json.tool
