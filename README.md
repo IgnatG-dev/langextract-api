@@ -102,7 +102,7 @@ Multi-worker Uvicorn (4 procs), multiple Celery replicas, resource limits, healt
 | `GET` | `/api/v1/health/celery` | Worker readiness probe |
 | `GET` | `/api/v1/metrics` | Task counters (submitted / completed / failed) |
 
-Interactive docs at **http://localhost:8000/api/v1/docs** (Swagger UI).
+Interactive docs at **<http://localhost:8000/api/v1/docs>** (Swagger UI).
 
 ### Submit Extraction (URL)
 

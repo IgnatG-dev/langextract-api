@@ -1364,6 +1364,7 @@ dependencies = [
     { name = "langcore-audit" },
     { name = "langcore-dspy" },
     { name = "langcore-guardrails" },
+    { name = "langcore-hybrid-llm-regex" },
     { name = "langcore-litellm" },
     { name = "langcore-rag" },
     { name = "prometheus-client" },
@@ -1393,6 +1394,7 @@ requires-dist = [
     { name = "langcore-audit" },
     { name = "langcore-dspy" },
     { name = "langcore-guardrails" },
+    { name = "langcore-hybrid-llm-regex" },
     { name = "langcore-litellm" },
     { name = "langcore-rag" },
     { name = "prometheus-client", specifier = ">=0.22.0" },
@@ -1450,6 +1452,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9d/a7/e04149b3a75c64aad5e876270feb29bb0779079d765e32da5ff57583f5ee/langcore_guardrails-1.2.1.tar.gz", hash = "sha256:ecfd8664c11d708f33e28671abfb75fd952a8525adcc5729e1cbcf93881814f9", size = 30516, upload-time = "2026-02-23T16:56:07.409Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3e/ae/e9f3dc7d1e8bb51fa6ff1efe7cdd98aa5ed615eaa7e273001621dad13db1/langcore_guardrails-1.2.1-py3-none-any.whl", hash = "sha256:b7b2f0a5232859ef7d2b4aa658b3c557888401a286ec4e50de663ad84251ca65", size = 23160, upload-time = "2026-02-23T16:56:05.913Z" },
+]
+
+[[package]]
+name = "langcore-hybrid-llm-regex"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langcore" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/8b/9e56eda4d05239d0970698e7df15eff4a2fa797dedc0d4e25ff8537fa26a/langcore_hybrid_llm_regex-1.1.1.tar.gz", hash = "sha256:6302c6a040eabc7027afca046785b8fb1b8f15fad58c9a5ca7df5aa4573eff67", size = 19089, upload-time = "2026-02-23T16:55:53.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/35/9271f6cf05def20c0d85b1b75116636cf0edac89e01ff15e85024bbafe3f/langcore_hybrid_llm_regex-1.1.1-py3-none-any.whl", hash = "sha256:2d176bf4436e1f51b5a23e436b00ba7c00f0381a8155f08dc2642af718fa28fa", size = 14598, upload-time = "2026-02-23T16:55:51.962Z" },
 ]
 
 [[package]]
