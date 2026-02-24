@@ -13,8 +13,14 @@ keeps working.
 from app.schemas.enums import TaskState
 from app.schemas.health import CeleryHealthResponse, HealthResponse
 from app.schemas.plugins import (
+    DSPyEvaluateRequest,
+    DSPyEvaluateResponse,
+    DSPyListResponse,
+    DSPyLoadResponse,
     DSPyOptimizationRequest,
     DSPyOptimizationResponse,
+    DSPySaveRequest,
+    DSPySaveResponse,
     RAGQueryParseRequest,
     RAGQueryParseResponse,
 )
@@ -43,8 +49,14 @@ __all__ = [
     "BatchExtractionRequest",
     "BatchTaskSubmitResponse",
     "CeleryHealthResponse",
+    "DSPyEvaluateRequest",
+    "DSPyEvaluateResponse",
+    "DSPyListResponse",
+    "DSPyLoadResponse",
     "DSPyOptimizationRequest",
     "DSPyOptimizationResponse",
+    "DSPySaveRequest",
+    "DSPySaveResponse",
     "ExtractedEntity",
     "ExtractionConfig",
     "ExtractionMetadata",

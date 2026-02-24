@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     GUARDRAILS_MAX_CORRECTION_PROMPT_LENGTH: int | None = None
     GUARDRAILS_MAX_CORRECTION_OUTPUT_LENGTH: int | None = None
 
+    # ── Hybrid rule-based extraction (langcore-hybrid) ──────────────
+    HYBRID_ENABLED: bool = False
+    HYBRID_MIN_CONFIDENCE: float = 0.8
+
     # ── DSPy prompt optimization ────────────────────────────────────
     DSPY_ENABLED: bool = False
     DSPY_MODEL_ID: str = "gemini/gemini-2.5-flash"
@@ -119,6 +123,7 @@ class Settings(BaseSettings):
     DSPY_MAX_BOOTSTRAPPED_DEMOS: int = 3
     DSPY_MAX_LABELED_DEMOS: int = 4
     DSPY_NUM_THREADS: int = 4
+    DSPY_CONFIG_DIR: str = ".dspy_configs"
 
     # ── RAG query parsing ───────────────────────────────────────────
     RAG_ENABLED: bool = False

@@ -20,6 +20,7 @@ dependencies = [
     "langcore-audit",
     "langcore-guardrails",
     "langcore-litellm",
+    "langcore-hybrid-llm-regex",
     "langcore-dspy",
     "langcore-rag",
 ]

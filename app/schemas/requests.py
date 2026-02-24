@@ -179,6 +179,36 @@ class GuardrailsConfig(BaseModel):
             "the schema cause validation failure."
         ),
     )
+    pydantic_schema_fields: dict[str, dict[str, str]] | None = Field(
+        default=None,
+        description=(
+            "Dynamic Pydantic schema for SchemaValidator. "
+            "Outer key is the field name, inner dict has "
+            "``type`` ('str', 'int', 'float', 'bool') and "
+            "optional ``description``. When set, a "
+            "``SchemaValidator`` is created automatically."
+        ),
+    )
+    pydantic_strict: bool = Field(
+        default=False,
+        description=(
+            "When ``True``, the SchemaValidator uses strict "
+            "Pydantic validation (no type coercion)."
+        ),
+    )
+    consistency_rules: list[dict[str, str]] | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Business-rule consistency checks. Each dict has "
+            "``field`` (field name to check), ``operator`` "
+            "('lt', 'gt', 'eq', 'ne'), and ``other_field`` "
+            "(field to compare against). E.g. "
+            '``{"field": "start_date", "operator": "lt", '
+            '"other_field": "end_date"}`` ensures start_date '
+            "is before end_date."
+        ),
+    )
 
 
 class AuditConfig(BaseModel):
@@ -301,6 +331,18 @@ class ExtractionConfig(BaseModel):
             "Audit logging configuration via "
             "langcore-audit.  When unset, falls back "
             "to the global ``AUDIT_*`` settings."
+        ),
+    )
+    hybrid_rules: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Deterministic extraction rules for langcore-hybrid. "
+            "Each dict has ``type`` ('regex' or 'callable'), "
+            "``pattern`` (regex string with named groups), and "
+            "optional ``description`` and ``confidence``. "
+            "When set and HYBRID_ENABLED=true, rules are tried "
+            "before the LLM — matching prompts skip the LLM "
+            "entirely for zero-latency deterministic extraction."
         ),
     )
 

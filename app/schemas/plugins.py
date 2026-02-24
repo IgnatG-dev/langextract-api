@@ -119,6 +119,144 @@ class DSPyOptimizationResponse(BaseModel):
     )
 
 
+class DSPySaveRequest(BaseModel):
+    """Request body for saving an optimized DSPy config."""
+
+    config_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        description=(
+            "Name for the saved config. Used as the directory "
+            "name under DSPY_CONFIG_DIR. Must contain only "
+            "letters, digits, hyphens, and underscores."
+        ),
+    )
+    prompt_description: str = Field(
+        ...,
+        min_length=1,
+        description="The optimized extraction prompt to save.",
+    )
+    examples: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Curated few-shot examples. Each dict should have "
+            "``text`` and ``extractions`` keys."
+        ),
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata to persist with the config.",
+    )
+
+
+class DSPySaveResponse(BaseModel):
+    """Response from saving a DSPy config."""
+
+    config_name: str = Field(
+        ...,
+        description="Name of the saved config.",
+    )
+    path: str = Field(
+        ...,
+        description="Filesystem path where the config was saved.",
+    )
+    message: str = Field(
+        default="Config saved successfully.",
+        description="Status message.",
+    )
+
+
+class DSPyLoadResponse(BaseModel):
+    """Response from loading a saved DSPy config."""
+
+    config_name: str = Field(
+        ...,
+        description="Name of the loaded config.",
+    )
+    prompt_description: str = Field(
+        ...,
+        description="The stored extraction prompt.",
+    )
+    examples: list[dict[str, Any]] = Field(
+        ...,
+        description="The stored few-shot examples.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Stored optimization metadata.",
+    )
+
+
+class DSPyListResponse(BaseModel):
+    """Response listing all saved DSPy configs."""
+
+    configs: list[str] = Field(
+        default_factory=list,
+        description="List of saved config names.",
+    )
+
+
+class DSPyEvaluateRequest(BaseModel):
+    """Request body for evaluating an optimized DSPy config."""
+
+    config_name: str | None = Field(
+        default=None,
+        description=(
+            "Name of a previously saved config to evaluate. "
+            "Mutually exclusive with ``prompt_description`` + "
+            "``examples``."
+        ),
+    )
+    prompt_description: str | None = Field(
+        default=None,
+        description=(
+            "Extraction prompt to evaluate (use instead of "
+            "``config_name`` for inline configs)."
+        ),
+    )
+    examples: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Few-shot examples to evaluate (use with "
+            "``prompt_description``)."
+        ),
+    )
+    test_texts: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Test document texts to evaluate against.",
+    )
+    expected_results: list[list[dict[str, str]]] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Expected extractions for each test document. "
+            "Each inner list contains dicts with "
+            "``extraction_class`` and ``extraction_text``."
+        ),
+    )
+    model_id: str | None = Field(
+        default=None,
+        description="LLM model for evaluation. Defaults to DSPY_MODEL_ID.",
+    )
+
+
+class DSPyEvaluateResponse(BaseModel):
+    """Response from evaluating a DSPy config."""
+
+    precision: float = Field(..., description="Overall precision (0.0-1.0).")
+    recall: float = Field(..., description="Overall recall (0.0-1.0).")
+    f1: float = Field(..., description="Overall F1 score (0.0-1.0).")
+    num_documents: int = Field(..., description="Number of documents evaluated.")
+    per_document: list[dict[str, Any]] = Field(
+        ...,
+        description="Per-document precision, recall, F1, and counts.",
+    )
+
+
 # ── RAG query parsing ──────────────────────────────────────
 
 
