@@ -101,8 +101,31 @@ def _silence_noisy_loggers(app_level: int) -> None:
         "httpx",
         "celery.redirected",
         "celery.worker.strategy",
+        # LiteLLM stdlib loggers (various capitalisation)
+        "LiteLLM",
+        "litellm",
+        "LiteLLM Proxy",
+        "LiteLLM Router",
     ]
     for name in noisy:
         logging.getLogger(name).setLevel(
             max(app_level, logging.WARNING),
         )
+
+    # ── Suppress per-call noise ─────────────────────────────
+    # "Provider List" is a print() in litellm, not a logger.
+    # Setting suppress_debug_info silences it.
+    try:
+        import litellm as _litellm
+
+        _litellm.suppress_debug_info = True
+    except ImportError:
+        pass
+
+    # Prompt alignment warnings use absl.logging (logger name "absl").
+    # These repeat per-pass for few-shot examples and aren't diagnostic.
+    logging.getLogger("absl").setLevel(logging.ERROR)
+
+    # Per-chunk audit JSON (langcore_audit.LoggingSink) is INFO-level.
+    # Suppress to WARNING so only errors/warnings from audit are shown.
+    logging.getLogger("langcore.audit").setLevel(logging.WARNING)

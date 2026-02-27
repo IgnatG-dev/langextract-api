@@ -47,12 +47,14 @@ from app.services.extraction_cache import (
 from app.services.model_wrappers import apply_model_wrappers
 from app.services.provider_manager import ProviderManager
 from app.services.providers import is_openai_model, resolve_api_key
+from app.core.url_utils import mask_url as _mask_url
 from app.services.structured_output import (
     build_response_format,
     supports_structured_output,
 )
 
 logger = logging.getLogger(__name__)
+
 
 # Maximum immediate retries when the LLM returns malformed
 # extraction_text (e.g. a dict instead of a string).  Each retry
@@ -219,9 +221,10 @@ def run_extraction(
     source = document_url or "<raw_text>"
     start_ms = int(time.time() * 1000)
 
+    log_source = _mask_url(source)
     logger.info(
         "Starting extraction for %s (model=%s, passes=%d)",
-        source,
+        log_source,
         provider,
         passes,
     )
@@ -243,10 +246,7 @@ def run_extraction(
         # the API route (e.g. management command, direct Celery
         # call).
         validate_url(document_url, purpose="document_url")
-        logger.info(
-            "Downloading document from %s",
-            document_url,
-        )
+        logger.info("Downloading document from %s", log_source)
         text_input: str = download_document(document_url)
     else:
         text_input = raw_text or ""
@@ -263,10 +263,11 @@ def run_extraction(
     examples = build_examples(raw_examples)
 
     # ── Step 2b: Check extraction cache ─────────────────────
+    no_cache = bool(extraction_config.get("no_cache", False))
     ext_cache = ExtractionCache.instance()
     cache_key: str | None = None
 
-    if ext_cache.enabled:
+    if ext_cache.enabled and not no_cache:
         cache_key = build_cache_key(
             text=text_input,
             prompt_description=prompt_description,
@@ -287,13 +288,19 @@ def run_extraction(
             elapsed_ms = int(time.time() * 1000) - start_ms
             cached["data"]["metadata"]["processing_time_ms"] = elapsed_ms
             cached["data"]["metadata"]["cache_hit"] = True
+            # Update source to the current URL — the cached entry may
+            # have been written with a different (now-stale) URL for
+            # the same document content.
+            cached["source"] = source
             logger.info(
                 "Extraction cache HIT for %s — returning in %d ms",
-                source,
+                log_source,
                 elapsed_ms,
             )
             return cached
         record_cache_miss()
+    elif no_cache:
+        logger.info("Cache bypassed (no_cache=true) for %s", log_source)
 
     # ── Step 3: Assemble lx.extract() kwargs ────────────────
     if task_self:
@@ -388,7 +395,7 @@ def run_extraction(
     # ── Step 4: Run LangCore ─────────────────────────────
     logger.info(
         "Calling lx.extract() for %s (model=%s, passes=%d)",
-        source,
+        log_source,
         model_label,
         passes,
     )
@@ -431,7 +438,7 @@ def run_extraction(
 
     logger.info(
         "Extraction completed for %s — %d entities in %d ms",
-        source,
+        log_source,
         len(entities),
         elapsed_ms,
     )
@@ -508,11 +515,12 @@ async def async_run_extraction(
     settings = get_settings()
     extraction_config = extraction_config or {}
     source = document_url or "<raw_text>"
+    log_source = _mask_url(source)
     start_ms = int(time.time() * 1000)
 
     logger.info(
         "Starting async extraction for %s (model=%s, passes=%d)",
-        source,
+        log_source,
         provider,
         passes,
     )
@@ -530,7 +538,7 @@ async def async_run_extraction(
 
     if document_url:
         validate_url(document_url, purpose="document_url")
-        logger.info("Downloading document from %s", document_url)
+        logger.info("Downloading document from %s", log_source)
         # download_document is I/O-bound but short; run in a
         # thread to avoid blocking the event loop.
         text_input: str = await asyncio.to_thread(
@@ -552,10 +560,11 @@ async def async_run_extraction(
     examples = build_examples(raw_examples)
 
     # ── Step 2b: Check extraction cache ─────────────────────
+    no_cache = bool(extraction_config.get("no_cache", False))
     ext_cache = ExtractionCache.instance()
     cache_key: str | None = None
 
-    if ext_cache.enabled:
+    if ext_cache.enabled and not no_cache:
         cache_key = build_cache_key(
             text=text_input,
             prompt_description=prompt_description,
@@ -576,13 +585,19 @@ async def async_run_extraction(
             elapsed_ms = int(time.time() * 1000) - start_ms
             cached["data"]["metadata"]["processing_time_ms"] = elapsed_ms
             cached["data"]["metadata"]["cache_hit"] = True
+            # Update source to the current URL — the cached entry may
+            # have been written with a different (now-stale) URL for
+            # the same document content.
+            cached["source"] = source
             logger.info(
                 "Extraction cache HIT for %s — returning in %d ms",
-                source,
+                log_source,
                 elapsed_ms,
             )
             return cached
         record_cache_miss()
+    elif no_cache:
+        logger.info("Cache bypassed (no_cache=true) for %s", log_source)
 
     # ── Step 3: Assemble lx.async_extract() kwargs ──────────
     if task_self:
@@ -670,7 +685,7 @@ async def async_run_extraction(
     # ── Step 4: Run LangCore (async) ─────────────────────
     logger.info(
         "Calling lx.async_extract() for %s (model=%s, passes=%d)",
-        source,
+        log_source,
         model_label,
         passes,
     )
@@ -713,7 +728,7 @@ async def async_run_extraction(
 
     logger.info(
         "Async extraction completed for %s — %d entities in %d ms",
-        source,
+        log_source,
         len(entities),
         elapsed_ms,
     )

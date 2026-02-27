@@ -75,8 +75,16 @@ class Settings(BaseSettings):
     DEFAULT_PROVIDER: str = "gpt-4o"
 
     # LangCore extraction defaults
-    DEFAULT_MAX_WORKERS: int = 10
-    DEFAULT_MAX_CHAR_BUFFER: int = 1000
+    DEFAULT_MAX_WORKERS: int = 1
+    DEFAULT_MAX_CHAR_BUFFER: int = 4000
+
+    # ── LiteLLM provider concurrency ───────────────────────────────
+    # Max concurrent async LLM requests per provider instance.
+    # Controls the asyncio.Semaphore inside the LiteLLM provider.
+    # Lower values reduce rate-limit errors; higher values speed up
+    # extraction of large documents.  Set to 0 to use the provider
+    # default (10).
+    LITELLM_MAX_CONCURRENT_REQUESTS: int = 3
 
     # Task defaults
     TASK_TIME_LIMIT: int = 3600  # seconds
@@ -94,7 +102,7 @@ class Settings(BaseSettings):
     BATCH_CONCURRENCY: int = 4
 
     # ── Extraction-result cache ─────────────────────────────────────
-    EXTRACTION_CACHE_ENABLED: bool = True
+    EXTRACTION_CACHE_ENABLED: bool = False  # TODO: enable this in Prod True
     EXTRACTION_CACHE_TTL: int = 86400  # seconds (24 h)
     EXTRACTION_CACHE_BACKEND: str = "redis"  # redis | disk | none
 

@@ -14,6 +14,7 @@ documents.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import threading
 from typing import Any
@@ -113,18 +114,24 @@ class ProviderManager:
         api_key: str | None,
         fence_output: bool | None = None,
         use_schema_constraints: bool = True,
-        has_response_format: bool = False,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """Deterministic cache key for a model configuration.
 
         Includes ``fence_output``, ``use_schema_constraints``, and
-        ``has_response_format`` so that the same ``(model_id,
-        api_key)`` pair with different schema or structured-output
-        settings produces distinct cache entries.
+        a hash of the full ``response_format`` content so that the
+        same ``(model_id, api_key)`` pair with different structured-
+        output schemas (e.g. different extraction groups) produces
+        distinct cache entries.
         """
+        rf_hash = ""
+        if response_format is not None:
+            rf_hash = hashlib.sha256(
+                json.dumps(response_format, sort_keys=True).encode()
+            ).hexdigest()[:16]
         raw = (
             f"{model_id}:{api_key or ''}:{fence_output}"
-            f":{use_schema_constraints}:{has_response_format}"
+            f":{use_schema_constraints}:{rf_hash}"
         )
         return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
@@ -161,7 +168,7 @@ class ProviderManager:
             api_key,
             fence_output=fence_output,
             use_schema_constraints=use_schema_constraints,
-            has_response_format=response_format is not None,
+            response_format=response_format,
         )
 
         with self._model_lock:
@@ -174,6 +181,13 @@ class ProviderManager:
             provider_kwargs["api_key"] = api_key
         if response_format is not None:
             provider_kwargs["response_format"] = response_format
+
+        # Propagate concurrency limit to the LiteLLM provider's
+        # asyncio.Semaphore so burst request volume is capped.
+        max_concurrent = get_settings().LITELLM_MAX_CONCURRENT_REQUESTS
+        if max_concurrent and max_concurrent > 0:
+            provider_kwargs["max_workers"] = max_concurrent
+
         provider_kwargs.update(extra_kwargs)
 
         config = factory.ModelConfig(

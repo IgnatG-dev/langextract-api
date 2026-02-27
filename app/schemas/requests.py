@@ -345,6 +345,18 @@ class ExtractionConfig(BaseModel):
             "entirely for zero-latency deterministic extraction."
         ),
     )
+    no_cache: bool | None = Field(
+        default=None,
+        description=(
+            "When ``True``, bypass the extraction-result cache "
+            "for this request — always run a fresh extraction "
+            "and do not store the result in the cache.  Useful "
+            "for debugging, prompt iteration, and one-off "
+            "re-processing.  Defaults to ``False`` (caching "
+            "follows the global ``EXTRACTION_CACHE_ENABLED`` "
+            "setting)."
+        ),
+    )
 
     def to_flat_dict(self) -> dict[str, Any]:
         """Return a dict with only non-None values.

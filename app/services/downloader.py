@@ -35,6 +35,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.security import validate_url
+from app.core.url_utils import mask_url
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +299,6 @@ def download_document(url: str) -> str:
     logger.info(
         "Downloaded %d bytes from %s",
         len(body),
-        url,
+        mask_url(url),
     )
     return text

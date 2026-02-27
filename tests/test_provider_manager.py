@@ -135,6 +135,42 @@ class TestModelCaching:
         assert m1 is not m2
         assert mock_create.call_count == 2
 
+    def test_different_response_formats_create_distinct_entries(self):
+        """Different ``response_format`` dicts must produce distinct entries.
+
+        Regression test: previously the cache key only tracked *whether*
+        ``response_format`` was set (bool), not *what* it contained.
+        This caused all extraction groups to share the first group's
+        schema, producing 0 entities for subsequent groups.
+        """
+        manager = ProviderManager.instance()
+        rf_red_flags = {
+            "type": "json_schema",
+            "json_schema": {"name": "red_flags_schema", "schema": {"type": "object"}},
+        }
+        rf_key_dates = {
+            "type": "json_schema",
+            "json_schema": {"name": "key_dates_schema", "schema": {"type": "object"}},
+        }
+        with mock.patch(
+            "app.services.provider_manager.factory.create_model"
+        ) as mock_create:
+            mock_create.side_effect = [mock.MagicMock(), mock.MagicMock()]
+
+            m1 = manager.get_or_create_model(
+                "gpt-4o",
+                api_key="k1",
+                response_format=rf_red_flags,
+            )
+            m2 = manager.get_or_create_model(
+                "gpt-4o",
+                api_key="k1",
+                response_format=rf_key_dates,
+            )
+
+        assert m1 is not m2
+        assert mock_create.call_count == 2
+
     def test_response_format_forwarded_to_provider_kwargs(self):
         """``response_format`` should appear in the model config."""
         manager = ProviderManager.instance()

@@ -40,7 +40,6 @@ case "${APP_ROLE}" in
   flower)
     # Brief pause lets the worker finish its mingle phase so
     # flower's first inspect round succeeds cleanly.
-    sleep 5
     exec celery -A app.workers.celery_app \
       --broker="${CELERY_BROKER_URL:-redis://redis:6379/0}" \
       flower \

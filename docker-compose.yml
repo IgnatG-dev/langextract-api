@@ -1,11 +1,13 @@
 ---
 # LangCore API — Docker Compose
 #
-# Services: API (FastAPI), Worker (Celery), Redis (broker/backend), Flower (monitoring)
+# Services: API (FastAPI), Worker (Celery)
+# Infrastructure (Redis, Flower) lives in ../contract-analysis-api/docker-compose.db.yml
 #
 # Usage:
-#   Development : docker compose up --build
-#   Production  : docker compose --profile production up --build -d
+#   1. Start infra   : cd ../contract-analysis-api && docker compose -f docker-compose.db.yml up -d
+#   2. Development    : docker compose up --build
+#   3. Production     : docker compose --profile production up --build -d
 
 x-dev-common: &dev-common
   image: langcore:dev
@@ -13,23 +15,10 @@ x-dev-common: &dev-common
     - .:/app
   env_file:
     - .env
+  networks:
+    - langcore-net
 
 services:
-  # ── Redis — message broker & result backend ──────────────────────────────
-  redis:
-    image: redis:8-alpine
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── FastAPI application ──────────────────────────────────────────────────
   api:
     <<: *dev-common
@@ -42,48 +31,24 @@ services:
     environment:
       APP_ROLE: web
       WEB_WORKERS: 1
-      REDIS_HOST: redis
+      REDIS_HOST: redis-server
       REDIS_PORT: 6379
       REDIS_DB: 0
-      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis-server:6379/0
       LOG_LEVEL: info
-    depends_on:
-      redis:
-        condition: service_healthy
 
   # ── Celery worker ───────────────────────────────────────────────────────
   worker:
     <<: *dev-common
     environment:
       APP_ROLE: worker
-      WORKER_CONCURRENCY: 2
+      WORKER_CONCURRENCY: 1
       MAX_TASKS_PER_CHILD: 100
-      REDIS_HOST: redis
+      REDIS_HOST: redis-server
       REDIS_PORT: 6379
       REDIS_DB: 0
-      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis-server:6379/0
       LOG_LEVEL: info
-    depends_on:
-      redis:
-        condition: service_healthy
-
-  # ── Flower — Celery monitoring dashboard ─────────────────────────────────
-  flower:
-    <<: *dev-common
-    ports:
-      - "5555:5555"
-    environment:
-      APP_ROLE: flower
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      LOG_LEVEL: info
-    depends_on:
-      redis:
-        condition: service_healthy
-      worker:
-        condition: service_started
 
   # ── Production API (use --profile production) ────────────────────────────
   api-prod:
@@ -102,14 +67,13 @@ services:
     environment:
       APP_ROLE: web
       WEB_WORKERS: 4
-      REDIS_HOST: redis
+      REDIS_HOST: redis-server
       REDIS_PORT: 6379
       REDIS_DB: 0
-      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis-server:6379/0
       LOG_LEVEL: warning
-    depends_on:
-      redis:
-        condition: service_healthy
+    networks:
+      - langcore-net
     deploy:
       resources:
         limits:
@@ -131,14 +95,14 @@ services:
       APP_ROLE: worker
       WORKER_CONCURRENCY: 4
       MAX_TASKS_PER_CHILD: 200
-      REDIS_HOST: redis
+      REDIS_HOST: redis-server
       REDIS_PORT: 6379
       REDIS_DB: 0
-      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis-server:6379/0
       LOG_LEVEL: warning
+    networks:
+      - langcore-net
     depends_on:
-      redis:
-        condition: service_healthy
       api-prod:
         condition: service_started
     deploy:
@@ -151,5 +115,7 @@ services:
           cpus: "0.5"
           memory: 512M
 
-volumes:
-  redis_data:
+networks:
+  langcore-net:
+    external: true
+    name: langcore-net

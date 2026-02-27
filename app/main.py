@@ -22,7 +22,7 @@ from starlette.middleware.base import (
     RequestResponseEndpoint,
 )
 
-from app.api.routes import batch, dspy, extract, health, rag, tasks
+from app.api.routes import batch, classify, dspy, extract, health, rag, tasks
 from app.core.config import get_settings, get_version
 from app.core.logging import setup_logging
 
@@ -130,6 +130,7 @@ app.include_router(health.router, prefix=settings.API_V1_STR)
 app.include_router(extract.router, prefix=settings.API_V1_STR)
 app.include_router(batch.router, prefix=settings.API_V1_STR)
 app.include_router(tasks.router, prefix=settings.API_V1_STR)
+app.include_router(classify.router, prefix=settings.API_V1_STR)
 app.include_router(dspy.router, prefix=settings.API_V1_STR)
 app.include_router(rag.router, prefix=settings.API_V1_STR)
 

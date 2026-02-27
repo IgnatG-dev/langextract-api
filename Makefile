@@ -20,6 +20,8 @@ format: ## Auto-format code with ruff
 	uv run ruff format .
 	uv run ruff check --fix .
 
+cache-clean:
+	uv cache clean langcore
 # ── Testing ─────────────────────────────────────────────────────────────────
 
 test: ## Run tests
